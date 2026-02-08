@@ -101,7 +101,7 @@ defmodule FactoryMan do
 
   ## Using Generated Functions
 
-  **Params builders** return plain maps:
+  **Params builders** return plain data:
 
   ```elixir
   iex> MyApp.Factory.build_user_params()
@@ -117,7 +117,7 @@ defmodule FactoryMan do
   [%{username: "user-1234567893", role: "admin"}, %{username: "user-1234567894", role: "admin"}]
   ```
 
-  **Struct builders** return Ecto structs:
+  **Struct builders** return structs:
 
   ```elixir
   iex> MyApp.Factory.build_user_struct()
@@ -146,7 +146,7 @@ defmodule FactoryMan do
   ]
   ```
 
-  **List functions** create multiple records:
+  **List functions** create multiple items:
 
   ```elixir
   iex> MyApp.Factory.build_user_params_list(2)
@@ -164,15 +164,6 @@ defmodule FactoryMan do
 
   **Customizing what gets generated:**
 
-  **Struct factory** (default) - Generates all functions
-
-  ```elixir
-  deffactory user(params \\ %{}), struct: User do
-    %{username: "user-#{System.os_time()}"}
-  end
-  # Generates: build_user_params, build_user_struct, insert_user! (and _list variants)
-  ```
-
   **Params-only** (no `:struct` option) - Only generates params builders
 
   ```elixir
@@ -180,6 +171,26 @@ defmodule FactoryMan do
     %{action: "create", data: params}
   end
   # Generates: build_api_payload_params, build_api_payload_params_list
+  ```
+
+  **Non-insertable structs** (e.g. Embedded Ecto schemas or non-Ecto structs) - Automatically
+  skips insert functions (since there is no database table)
+
+  ```elixir
+  deffactory user_settings(params \\ %{}), struct: UserSettings do
+    %{theme: "dark", notifications: true}
+  end
+  # Generates: build_user_settings_params, build_user_settings_struct (and _list variants)
+  # Embedded schemas automatically skip insert functions
+  ```
+
+  **Struct factory** (default) - Generates all functions
+
+  ```elixir
+  deffactory user(params \\ %{}), struct: User do
+    %{username: "user-#{System.os_time()}"}
+  end
+  # Generates: build_user_params, build_user_struct, insert_user! (and _list variants)
   ```
 
   **No insert** (`:insert? false`) - Generates params and struct builders, skips insert functions
@@ -190,16 +201,6 @@ defmodule FactoryMan do
   end
   # Generates: build_read_only_user_params, build_read_only_user_struct (and _list variants)
   # Skips: insert_read_only_user!
-  ```
-
-  **Embedded schemas** - Automatically skips insert functions (since there is no database table)
-
-  ```elixir
-  deffactory user_settings(params \\ %{}), struct: UserSettings do
-    %{theme: "dark", notifications: true}
-  end
-  # Generates: build_user_settings_params, build_user_settings_struct (and _list variants)
-  # Embedded schemas automatically skip insert functions
   ```
 
   ## Defining Factories
@@ -596,6 +597,50 @@ defmodule FactoryMan do
     end
   end
 
+  @doc """
+  Defines a factory that generates test data.
+
+  The `deffactory` macro creates a set of functions for building test data. It works like
+  defining a function, where you specify the factory name and a parameter (typically `params`).
+
+  ## Options
+
+  - `:struct` - The Ecto schema module to build structs from. When provided, generates
+    struct and insert functions in addition to params builders.
+  - `:insert?` - Set to `false` to skip generating insert functions (default: `true` when
+    repo is configured and struct is insertable)
+  - `:build_struct?` - Set to `false` to skip generating struct builder functions (default: `true`)
+  - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
+
+  ## Generated Functions
+
+  For a factory named `user` which builds a struct, the following functions are generated:
+
+  - `build_user_params/1` - Returns plain params
+  - `build_user_struct/1` - Returns an unsaved struct (when `:struct` is set)
+  - `insert_user!/1` - Inserts into the database (when `:struct` is set and repo is configured)
+  - `build_user_params_list/2` - Builds multiple items
+  - `build_user_struct_list/2` - Builds multiple structs (when `:struct` is set)
+  - `insert_user_list!/2` - Inserts multiple items (when `:struct` is set and repo is configured)
+
+  ## Examples
+
+      deffactory user(params \\ %{}), struct: User do
+        base_params = %{
+          username: sequence("user"),
+          email: sequence(:email, fn n -> "user\#{n}@example.com" end)
+        }
+
+        Map.merge(base_params, params)
+      end
+
+      iex> MyApp.Factory.build_user_params(%{username: "alice"})
+      %{username: "alice", email: "user0@example.com"}
+
+      iex> MyApp.Factory.insert_user!(%{role: "admin"})
+      %User{id: 1, username: "user1", email: "admin@example.com", role: "admin"}
+
+  """
   defmacro deffactory(factory_head, opts \\ [], do: block) do
     # Extract factory name, the arg AST (preserving any default), and the user's var
     # Also create head_ast for function heads (variables only, no destructuring patterns)
