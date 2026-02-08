@@ -97,6 +97,71 @@ defmodule FactoryMan do
 
   All functions accept optional params for customization. Insert functions also accept repo options.
 
+  **List variants** - All functions have corresponding list builders (`*_list`) for batch creation.
+
+  ## Using Generated Functions
+
+  **Params builders** return plain maps:
+
+  ```elixir
+  iex> MyApp.Factory.build_user_params()
+  %{username: "user-1234567890"}
+
+  iex> MyApp.Factory.build_user_params(%{username: "alice"})
+  %{username: "alice"}
+
+  iex> MyApp.Factory.build_user_params_list(3)
+  [%{username: "user-1234567890"}, %{username: "user-1234567891"}, %{username: "user-1234567892"}]
+
+  iex> MyApp.Factory.build_user_params_list(2, %{role: "admin"})
+  [%{username: "user-1234567893", role: "admin"}, %{username: "user-1234567894", role: "admin"}]
+  ```
+
+  **Struct builders** return Ecto structs:
+
+  ```elixir
+  iex> MyApp.Factory.build_user_struct()
+  %User{id: nil, username: "user-1234567895"}
+
+  iex> MyApp.Factory.build_user_struct(%{username: "bob"})
+  %User{id: nil, username: "bob"}
+
+  iex> MyApp.Factory.build_user_struct_list(2)
+  [%User{id: nil, username: "user-1234567896"}, %User{id: nil, username: "user-1234567897"}]
+  ```
+
+  **Insert functions** persist to database:
+
+  ```elixir
+  iex> MyApp.Factory.insert_user!()
+  %User{id: 1, username: "user-1234567898"}
+
+  iex> MyApp.Factory.insert_user!(%{username: "charlie"})
+  %User{id: 2, username: "charlie"}
+
+  iex> MyApp.Factory.insert_user_list!(2, %{verified: true})
+  [
+    %User{id: 3, username: "user-1234567899", verified: true},
+    %User{id: 4, username: "user-1234567900", verified: true}
+  ]
+  ```
+
+  **List functions** create multiple records:
+
+  ```elixir
+  iex> MyApp.Factory.build_user_params_list(2)
+  [%{username: "user-1234567901"}, %{username: "user-1234567902"}]
+
+  iex> MyApp.Factory.build_user_struct_list(2, %{role: "admin"})
+  [
+    %User{id: nil, username: "user-1234567903", role: "admin"},
+    %User{id: nil, username: "user-1234567904", role: "admin"}
+  ]
+
+  iex> MyApp.Factory.insert_user_list!(2)
+  [%User{id: 5, username: "user-1234567905"}, %User{id: 6, username: "user-1234567906"}]
+  ```
+
   **Customizing what gets generated:**
 
   **Struct factory** (default) - Generates all functions
