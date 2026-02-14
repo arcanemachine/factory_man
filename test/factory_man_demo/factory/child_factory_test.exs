@@ -725,4 +725,20 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       """)
     end
   end
+
+  # Tuple pattern should trigger unsupported pattern error
+  test "factory with tuple pattern raises helpful error" do
+    assert_raise ArgumentError, ~r/Unsupported factory argument pattern/, fn ->
+      Code.compile_string("""
+      defmodule TestTuplePattern do
+        use FactoryMan
+
+        # This should fail - tuple patterns not supported
+        deffactory invalid({a, b} = params), struct: String do
+          %{}
+        end
+      end
+      """)
+    end
+  end
 end
