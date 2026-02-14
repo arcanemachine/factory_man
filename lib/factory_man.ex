@@ -858,7 +858,24 @@ defmodule FactoryMan do
     })
   end
 
-  # Case 1: Variable with default - params \\ %{}
+  # Case 1: Pattern match with default - %{key: val} = params \\ %{}
+  # AST: {:\\, _, [{:=, _, [pattern, {var, _, _}]}, default]}
+  defp do_walk_arg_ast({:\\, _, [{:=, _, [_pattern, var_ast]} = pattern, default]}, acc) do
+    var_name = extract_var_name(var_ast)
+    # For function head, use just the variable with default (no pattern match)
+    head_ast = {:\\, [], [Macro.var(var_name, nil), default]}
+    user_var = Macro.var(var_name, nil)
+
+    %{acc |
+      head_ast: head_ast,
+      user_var: user_var,
+      arg_no_default: pattern,  # Keep the full pattern for implementation
+      has_pattern_without_default: true,
+      plain_var: var_ast
+    }
+  end
+
+  # Case 2: Variable with default - params \\ %{}
   # AST: {:\\, _, [{var, _, _}, default]}
   defp do_walk_arg_ast({:\\, _, [var_ast, _default]} = ast, acc) do
     var_name = extract_var_name(var_ast)
@@ -874,7 +891,7 @@ defmodule FactoryMan do
     }
   end
 
-  # Case 2: Pattern match without default - %{key: val} = params
+  # Case 4: Pattern match without default - %{key: val} = params
   # AST: {:=, _, [pattern, {var, _, _}]}
   defp do_walk_arg_ast({:=, _, [_pattern, var_ast]} = ast, acc) do
     var_name = extract_var_name(var_ast)
@@ -890,7 +907,7 @@ defmodule FactoryMan do
     }
   end
 
-  # Case 3: Simple variable - params
+  # Case 5: Simple variable - params
   # AST: {var, _, _}
   defp do_walk_arg_ast({var_name, _, _} = ast, acc) when is_atom(var_name) do
     user_var = Macro.var(var_name, nil)

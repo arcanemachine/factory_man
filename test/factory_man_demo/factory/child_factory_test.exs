@@ -652,4 +652,40 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     assert String.ends_with?(user3.username, "-guest")
     assert String.ends_with?(user4.username, "-admin")
   end
+
+  # Combined pattern: pattern match with default
+  test "combined pattern factory works with provided first_name" do
+    user = ChildFactory.build_combined_pattern_struct(%{first_name: "Alice"})
+
+    assert %User{} = user
+    assert user.full_name == "Alice User"
+    assert String.starts_with?(user.username, "user-")
+  end
+
+  test "combined pattern factory uses default first_name when not provided" do
+    user = ChildFactory.build_combined_pattern_struct()
+
+    assert %User{} = user
+    assert user.full_name == "Default User"
+    assert String.starts_with?(user.username, "user-")
+  end
+
+  test "combined pattern factory can be inserted" do
+    user = ChildFactory.insert_combined_pattern!(%{first_name: "Bob"})
+
+    assert %User{} = user
+    assert is_integer(user.id)
+    assert user.full_name == "Bob User"
+  end
+
+  test "combined pattern factory params work correctly" do
+    # Can be called without params (uses default first_name)
+    params = ChildFactory.build_combined_pattern_params()
+    assert is_map(params)
+    assert params.full_name == "Default User"
+
+    # Can be called with params containing first_name
+    params = ChildFactory.build_combined_pattern_params(%{first_name: "Charlie"})
+    assert params.full_name == "Charlie User"
+  end
 end

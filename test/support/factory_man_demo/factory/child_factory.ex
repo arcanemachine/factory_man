@@ -142,4 +142,16 @@ defmodule FactoryManDemo.Factory.ChildFactory do
 
     Map.merge(base_params, params)
   end
+
+  # Factory demonstrating combined pattern: pattern match WITH default
+  # This tests that we can have both pattern matching and default values
+  # The default includes the required key so pattern matching succeeds
+  deffactory combined_pattern(%{first_name: first_name} = params \\ %{first_name: "Default"}), struct: User do
+    base_params = %{
+      username: "user-#{System.os_time()}",
+      full_name: "#{first_name} User"
+    }
+
+    Map.merge(base_params, params)
+  end
 end
