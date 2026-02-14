@@ -641,45 +641,30 @@ defmodule FactoryMan do
       %User{id: 1, username: "user1", email: "admin@example.com", role: "admin"}
 
   """
+
   defmacro deffactory(factory_head, opts \\ [], do: block) do
-    # Extract factory name, the arg AST (preserving any default), and the user's var
-    # Also create head_ast for function heads (variables only, no destructuring patterns)
-    {factory_name, arg_ast, head_ast, user_var} =
-      case factory_head do
-        # Pattern without default: %{username: username} = params
-        # AST: {:=, [], [pattern, {var, _, _}]}
-        {name, _, [{:=, _, [_, {var, _, _}]} = arg_ast]} ->
-          head_ast = Macro.var(var, nil)
-          {name, arg_ast, head_ast, Macro.var(var, nil)}
+    # Recursively extract factory name and argument information from AST
+    extraction = extract_factory_args(factory_head)
 
-        # Simple variable with default: params \\ %{}
-        # AST: {:\\, [], [{var, _, _}, default]}
-        {name, _, [{:\\, _, [{var, _, _}, _]} = arg_ast]} ->
-          {name, arg_ast, arg_ast, Macro.var(var, nil)}
-
-        # Simple variable: params
-        # AST: {var, _, _}
-        {name, _, [{var, _, _} = arg]} ->
-          {name, arg, arg, Macro.var(var, nil)}
-      end
+    factory_name = extraction.name
+    arg_ast = extraction.arg_ast
+    head_ast = extraction.head_ast
+    user_var = extraction.user_var
+    arg_ast_no_default = extraction.arg_no_default
+    has_pattern_without_default = extraction.has_pattern_without_default
+    plain_var_ast = extraction.plain_var
 
     quote bind_quoted: [
             factory_name: factory_name,
             arg_ast: Macro.escape(arg_ast, unquote: true),
             head_ast: Macro.escape(head_ast, unquote: true),
             user_var: Macro.escape(user_var, unquote: true),
+            arg_ast_no_default: Macro.escape(arg_ast_no_default, unquote: true),
+            has_pattern_without_default: has_pattern_without_default,
+            plain_var_ast: Macro.escape(plain_var_ast, unquote: true),
             opts: opts,
             block: Macro.escape(block, unquote: true)
           ] do
-      # Strip default from arg_ast for implementation clauses
-      # Also check if this factory has a pattern match without default
-      # Also extract plain var (for struct/insert implementations that don't need pattern variables)
-      {arg_ast_no_default, has_pattern_without_default, plain_var_ast} =
-        case arg_ast do
-          {:\\, _, [var_ast, _default]} -> {var_ast, false, var_ast}
-          {:=, _, [_pattern, var]} = pattern -> {pattern, true, var}
-          other -> {other, false, other}
-        end
 
       parent_factory_opts = Module.get_attribute(__MODULE__, :parent_factory_opts)
 
@@ -828,6 +813,99 @@ defmodule FactoryMan do
       end
     end
   end
+
+  # Extracts all necessary components from the factory_head AST recursively.
+  # Handles: params, params \\ %{}, %{key: val} = params, and variations.
+  defp extract_factory_args(factory_head) do
+    # First, extract the factory name and the argument list
+    {name, args} = extract_name_and_args(factory_head)
+
+    # Now recursively process the argument to extract all components
+    process_arg(args, name)
+  end
+
+  # Extract factory name and argument list from the head
+  defp extract_name_and_args({name, _, args}) when is_list(args) do
+    # Factory head is like: user(params) or user(params \\ %{})
+    {name, args}
+  end
+
+  # Process the argument AST recursively
+  defp process_arg([arg_ast], name) do
+    # Recursively walk the AST to extract components
+    components = walk_arg_ast(arg_ast)
+
+    # Build the result map
+    %{
+      name: name,
+      arg_ast: arg_ast,
+      head_ast: components.head_ast,
+      user_var: components.user_var,
+      arg_no_default: components.arg_no_default,
+      has_pattern_without_default: components.has_pattern_without_default,
+      plain_var: components.plain_var
+    }
+  end
+
+  # Recursively walk the argument AST and extract all necessary components
+  defp walk_arg_ast(ast) do
+    do_walk_arg_ast(ast, %{
+      head_ast: nil,
+      user_var: nil,
+      arg_no_default: nil,
+      has_pattern_without_default: false,
+      plain_var: nil
+    })
+  end
+
+  # Case 1: Variable with default - params \\ %{}
+  # AST: {:\\, _, [{var, _, _}, default]}
+  defp do_walk_arg_ast({:\\, _, [var_ast, _default]} = ast, acc) do
+    var_name = extract_var_name(var_ast)
+    head_ast = ast  # Keep the full \\ expression for head
+    user_var = Macro.var(var_name, nil)
+
+    %{acc |
+      head_ast: head_ast,
+      user_var: user_var,
+      arg_no_default: var_ast,
+      has_pattern_without_default: false,
+      plain_var: var_ast
+    }
+  end
+
+  # Case 2: Pattern match without default - %{key: val} = params
+  # AST: {:=, _, [pattern, {var, _, _}]}
+  defp do_walk_arg_ast({:=, _, [_pattern, var_ast]} = ast, acc) do
+    var_name = extract_var_name(var_ast)
+    head_ast = Macro.var(var_name, nil)  # Use just the var for head (no destructuring)
+    user_var = Macro.var(var_name, nil)
+
+    %{acc |
+      head_ast: head_ast,
+      user_var: user_var,
+      arg_no_default: ast,  # Keep the full pattern for implementation
+      has_pattern_without_default: true,
+      plain_var: var_ast
+    }
+  end
+
+  # Case 3: Simple variable - params
+  # AST: {var, _, _}
+  defp do_walk_arg_ast({var_name, _, _} = ast, acc) when is_atom(var_name) do
+    user_var = Macro.var(var_name, nil)
+
+    %{acc |
+      head_ast: ast,
+      user_var: user_var,
+      arg_no_default: ast,
+      has_pattern_without_default: false,
+      plain_var: ast
+    }
+  end
+
+  # Extract variable name from a variable AST node
+  defp extract_var_name({var_name, _, _}) when is_atom(var_name), do: var_name
 
   @doc """
   Evaluate lazy attributes in a map or struct.
