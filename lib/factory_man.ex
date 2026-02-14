@@ -847,6 +847,19 @@ defmodule FactoryMan do
     }
   end
 
+  # Catch-all for invalid argument counts
+  defp process_arg(args, _name) when is_list(args) do
+    raise ArgumentError, """
+    Invalid factory definition: expected exactly one argument, got #{length(args)}
+
+    FactoryMan factories must have exactly one parameter (typically `params`).
+
+    Valid examples:
+      deffactory user(params \\ %{}), struct: User do ... end
+      deffactory author(%{name: name} = params), struct: Author do ... end
+    """
+  end
+
   # Recursively walk the argument AST and extract all necessary components
   defp walk_arg_ast(ast) do
     do_walk_arg_ast(ast, %{

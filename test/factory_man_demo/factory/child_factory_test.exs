@@ -710,15 +710,16 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     assert params.username == "deep-test123"
   end
 
-  # Unsupported pattern raises helpful error
-  test "unsupported pattern raises ArgumentError with helpful message" do
-    assert_raise ArgumentError, ~r/Unsupported factory argument pattern/, fn ->
+  # Multiple arguments should trigger helpful error
+  test "factory with multiple arguments raises helpful error" do
+    assert_raise ArgumentError, ~r/Invalid factory definition: expected exactly one argument/, fn ->
       Code.compile_string("""
-      defmodule TestUnsupportedPattern do
+      defmodule TestMultiArg do
         use FactoryMan
 
-        deffactory invalid(^pinned = params), struct: String do
-          params
+        # This should fail - factories only support single argument
+        deffactory multi(a, b), struct: String do
+          %{}
         end
       end
       """)
