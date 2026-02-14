@@ -698,7 +698,8 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
   test "nested pattern factory raises when pattern doesn't match" do
     assert_raise FunctionClauseError, fn ->
-      ChildFactory.build_nested_pattern_params(%{other: "data"})
+      # Use apply to bypass type checking for this negative test case
+      apply(ChildFactory, :build_nested_pattern_params, [%{other: "data"}])
     end
   end
 end
