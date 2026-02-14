@@ -163,4 +163,13 @@ defmodule FactoryManDemo.Factory.ChildFactory do
 
     Map.merge(base_params, params)
   end
+
+  # Factory demonstrating deep nested pattern with literal match
+  deffactory deep_nested(%{config: %{nested: %{value: val}}} = params), struct: User do
+    base_params = %{
+      username: "deep-#{val}"
+    }
+
+    Map.merge(base_params, params)
+  end
 end

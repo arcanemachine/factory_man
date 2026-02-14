@@ -702,4 +702,26 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       apply(ChildFactory, :build_nested_pattern_params, [%{other: "data"}])
     end
   end
+
+  # Deep nested pattern with multiple levels
+  test "deep nested pattern factory works with multiple nesting levels" do
+    params = ChildFactory.build_deep_nested_params(%{config: %{nested: %{value: "test123"}}})
+
+    assert params.username == "deep-test123"
+  end
+
+  # Unsupported pattern raises helpful error
+  test "unsupported pattern raises ArgumentError with helpful message" do
+    assert_raise ArgumentError, ~r/Unsupported factory argument pattern/, fn ->
+      Code.compile_string("""
+      defmodule TestUnsupportedPattern do
+        use FactoryMan
+
+        deffactory invalid(^pinned = params), struct: String do
+          params
+        end
+      end
+      """)
+    end
+  end
 end
