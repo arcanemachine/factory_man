@@ -154,4 +154,13 @@ defmodule FactoryManDemo.Factory.ChildFactory do
 
     Map.merge(base_params, params)
   end
+
+  # Factory demonstrating nested pattern matching
+  deffactory nested_pattern(%{author: %{name: name}} = params), struct: User do
+    base_params = %{
+      username: "author-#{String.downcase(name)}"
+    }
+
+    Map.merge(base_params, params)
+  end
 end

@@ -921,6 +921,21 @@ defmodule FactoryMan do
     }
   end
 
+  # Catch-all for unsupported patterns
+  defp do_walk_arg_ast(ast, _acc) do
+    raise ArgumentError, """
+    Unsupported factory argument pattern: #{Macro.to_string(ast)}
+
+    FactoryMan supports these patterns:
+      - params
+      - params \\ %{}
+      - %{key: value} = params
+      - %{key: value} = params \\ %{key: default}
+
+    If you need a different pattern, please open an issue.
+    """
+  end
+
   # Extract variable name from a variable AST node
   defp extract_var_name({var_name, _, _}) when is_atom(var_name), do: var_name
 

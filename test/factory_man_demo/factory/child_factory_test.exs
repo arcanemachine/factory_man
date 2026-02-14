@@ -688,4 +688,17 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     params = ChildFactory.build_combined_pattern_params(%{first_name: "Charlie"})
     assert params.full_name == "Charlie User"
   end
+
+  # Nested pattern matching
+  test "nested pattern factory extracts deeply nested values" do
+    params = ChildFactory.build_nested_pattern_params(%{author: %{name: "John"}})
+
+    assert params.username == "author-john"
+  end
+
+  test "nested pattern factory raises when pattern doesn't match" do
+    assert_raise FunctionClauseError, fn ->
+      ChildFactory.build_nested_pattern_params(%{other: "data"})
+    end
+  end
 end
