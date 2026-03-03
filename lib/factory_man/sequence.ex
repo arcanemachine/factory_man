@@ -145,7 +145,7 @@ defmodule FactoryMan.Sequence do
   def ensure_started do
     case Process.whereis(__MODULE__) do
       nil ->
-        case start_link([]) do
+        case Agent.start(fn -> Map.new() end, name: __MODULE__) do
           {:ok, _pid} -> :ok
           {:error, {:already_started, _pid}} -> :ok
         end
