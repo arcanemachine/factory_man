@@ -651,7 +651,7 @@ defmodule FactoryMan do
     head_ast = extraction.head_ast
     user_var = extraction.user_var
     arg_ast_no_default = extraction.arg_no_default
-    has_pattern_without_default = extraction.has_pattern_without_default
+    has_pattern_match = extraction.has_pattern_match
     plain_var_ast = extraction.plain_var
 
     quote bind_quoted: [
@@ -660,7 +660,7 @@ defmodule FactoryMan do
             head_ast: Macro.escape(head_ast, unquote: true),
             user_var: Macro.escape(user_var, unquote: true),
             arg_ast_no_default: Macro.escape(arg_ast_no_default, unquote: true),
-            has_pattern_without_default: has_pattern_without_default,
+            has_pattern_match: has_pattern_match,
             plain_var_ast: Macro.escape(plain_var_ast, unquote: true),
             opts: opts,
             block: Macro.escape(block, unquote: true)
@@ -696,7 +696,7 @@ defmodule FactoryMan do
 
       # Generate params list builder function
       # Only generate convenience function if there's no pattern match without default
-      if not has_pattern_without_default do
+      if not has_pattern_match do
         def unquote(:"build_#{factory_name}_params_list")(count)
             when is_integer(count) and count >= 0 do
           unquote(:"build_#{factory_name}_params_list")(count, %{})
@@ -726,7 +726,7 @@ defmodule FactoryMan do
 
         # Generate struct list builder function
         # Only generate convenience function if there's no pattern match without default
-        if not has_pattern_without_default do
+        if not has_pattern_match do
           def unquote(:"build_#{factory_name}_struct_list")(count)
               when is_integer(count) and count >= 0 do
             unquote(:"build_#{factory_name}_struct_list")(count, %{})
@@ -757,7 +757,7 @@ defmodule FactoryMan do
 
           # Only generate convenience function if there's no pattern match without default
           # Pattern matches require specific keys, so we can't call with %{}
-          if not has_pattern_without_default do
+          if not has_pattern_match do
             def unquote(:"insert_#{factory_name}!")(repo_insert_opts)
                 when is_list(repo_insert_opts) do
               unquote(:"insert_#{factory_name}!")(%{}, repo_insert_opts)
@@ -784,7 +784,7 @@ defmodule FactoryMan do
 
           # Generate struct insert list functions
           # Only generate convenience functions if there's no pattern match without default
-          if not has_pattern_without_default do
+          if not has_pattern_match do
             def unquote(:"insert_#{factory_name}_list!")(count)
                 when is_integer(count) and count >= 0 do
               unquote(:"insert_#{factory_name}_list!")(count, %{}, [])
@@ -842,7 +842,7 @@ defmodule FactoryMan do
       head_ast: components.head_ast,
       user_var: components.user_var,
       arg_no_default: components.arg_no_default,
-      has_pattern_without_default: components.has_pattern_without_default,
+      has_pattern_match: components.has_pattern_match,
       plain_var: components.plain_var
     }
   end
@@ -866,7 +866,7 @@ defmodule FactoryMan do
       head_ast: nil,
       user_var: nil,
       arg_no_default: nil,
-      has_pattern_without_default: false,
+      has_pattern_match: false,
       plain_var: nil
     })
   end
@@ -883,7 +883,7 @@ defmodule FactoryMan do
       head_ast: head_ast,
       user_var: user_var,
       arg_no_default: pattern,  # Keep the full pattern for implementation
-      has_pattern_without_default: true,
+      has_pattern_match: true,
       plain_var: var_ast
     }
   end
@@ -899,7 +899,7 @@ defmodule FactoryMan do
       head_ast: head_ast,
       user_var: user_var,
       arg_no_default: var_ast,
-      has_pattern_without_default: false,
+      has_pattern_match: false,
       plain_var: var_ast
     }
   end
@@ -915,7 +915,7 @@ defmodule FactoryMan do
       head_ast: head_ast,
       user_var: user_var,
       arg_no_default: ast,  # Keep the full pattern for implementation
-      has_pattern_without_default: true,
+      has_pattern_match: true,
       plain_var: var_ast
     }
   end
@@ -929,7 +929,7 @@ defmodule FactoryMan do
       head_ast: ast,
       user_var: user_var,
       arg_no_default: ast,
-      has_pattern_without_default: false,
+      has_pattern_match: false,
       plain_var: ast
     }
   end
