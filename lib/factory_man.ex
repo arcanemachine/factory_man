@@ -178,7 +178,7 @@ defmodule FactoryMan do
 
   ```elixir
   deffactory user_settings(params \\ %{}), struct: UserSettings do
-    %{theme: "dark", notifications: true}
+    %{theme: "dark", notifications: true} |> Map.merge(params)
   end
   # Generates: build_user_settings_params, build_user_settings_struct (and _list variants)
   # Embedded schemas automatically skip insert functions
@@ -188,7 +188,7 @@ defmodule FactoryMan do
 
   ```elixir
   deffactory user(params \\ %{}), struct: User do
-    %{username: "user-#{System.os_time()}"}
+    %{username: "user-#{System.os_time()}"} |> Map.merge(params)
   end
   # Generates: build_user_params, build_user_struct, insert_user! (and _list variants)
   ```
@@ -257,10 +257,10 @@ defmodule FactoryMan do
   Usage:
 
   ```elixir
-  iex> MyApp.Factory.build_api_payload()
+  iex> MyApp.Factory.build_api_payload_params()
   %{action: "create", resource: "user", data: %{username: "user0", email: "test0@example.com"}}
 
-  iex> MyApp.Factory.build_api_payload(%{action: "update"})
+  iex> MyApp.Factory.build_api_payload_params(%{action: "update"})
   %{action: "update", resource: "user", data: %{username: "user1", email: "test1@example.com"}}
   ```
 
@@ -504,18 +504,71 @@ defmodule FactoryMan do
   end
   ```
 
+  > #### Lazy evaluation ordering {: .warning}
+  >
+  > 1-arity lazy functions receive the **original map before any lazy evaluation**. This means
+  > if field A is a 0-arity lazy function and field B is a 1-arity function that references A,
+  > B will see A as a function reference, not its resolved value.
+  >
+  > To avoid surprises, make sure fields that 1-arity lazy functions depend on are **plain
+  > values**, not lazy functions themselves.
+  >
+  > ```elixir
+  > # Good: first_name is a plain value, so full_name can read it
+  > %{
+  >   first_name: "John",
+  >   full_name: fn user -> "\#{user.first_name} Smith" end
+  > }
+  >
+  > # Bad: first_name is lazy, so full_name will see a function, not a string
+  > %{
+  >   first_name: fn -> "John" end,
+  >   full_name: fn user -> "\#{user.first_name} Smith" end
+  > }
+  > ```
+
   ## Hooks
 
   Transform data at specific stages. Every factory action has both a `before` and `after` hook,
-  letting you intercept and modify data at the exact point you need:
+  letting you intercept and modify data at the exact point you need.
 
-  | Action               | Before Hook            | After Hook            |
-  | -------------------- | ---------------------- | --------------------- |
-  | Build params         | `:before_build_params` | `:after_build_params` |
-  | Build struct         | `:before_build_struct` | `:after_build_struct` |
-  | Insert into database | `:before_insert`       | `:after_insert`       |
+  ### Hook Pipeline
 
-  Example: Reset loaded associations after insert to match a fresh database query:
+  Each generated function uses a subset of the pipeline. The full flow for `insert_user!` is:
+
+  ```text
+  build_user_params:
+    before_build_params → [factory body + lazy eval] → after_build_params
+
+  build_user_struct (calls build_user_params internally):
+    → before_build_struct → struct!() → after_build_struct
+
+  insert_user! (calls build_user_struct internally):
+    → before_insert → Repo.insert!() → after_insert
+  ```
+
+  ### Hook Reference
+
+  | Hook                   | Receives        | Returns         | When to Use                                      |
+  | ---------------------- | --------------- | --------------- | ------------------------------------------------ |
+  | `:before_build_params` | params (map)    | params (map)    | Transform or inject params before the factory body runs |
+  | `:after_build_params`  | params (map)    | params (map)    | Modify params after the factory body (e.g. add computed fields) |
+  | `:before_build_struct` | params (map)    | params (map)    | Last chance to modify params before `struct!()` is called |
+  | `:after_build_struct`  | struct          | struct          | Transform the struct after creation (e.g. set virtual fields) |
+  | `:before_insert`       | struct          | struct          | Modify struct just before database insertion |
+  | `:after_insert`        | struct          | struct          | Post-process after insertion (e.g. reset associations) |
+
+  ### Hook Precedence
+
+  Hooks can be set at three levels. Later levels override earlier ones for the same hook key:
+
+  1. **Parent module** — `use FactoryMan, hooks: [...]`
+  2. **Child module** — `use FactoryMan, extends: Parent, hooks: [...]`
+  3. **Individual factory** — `deffactory name(params), hooks: [...]`
+
+  ### Examples
+
+  **Reset associations after insert** (most common hook usage):
 
   ```elixir
   defmodule MyApp.Factory do
@@ -526,6 +579,20 @@ defmodule FactoryMan do
     def reset_assocs(struct) do
       Ecto.reset_fields(struct, struct.__struct__.__schema__(:associations))
     end
+  end
+  ```
+
+  **Log factory usage for debugging:**
+
+  ```elixir
+  deffactory user(params \\ %{}), struct: User,
+    hooks: [after_build_params: &__MODULE__.log_params/1] do
+    %{username: "user-#{System.os_time()}"} |> Map.merge(params)
+  end
+
+  def log_params(params) do
+    IO.inspect(params, label: "factory params")
+    params
   end
   ```
 
