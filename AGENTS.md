@@ -1,128 +1,143 @@
-# FactoryMan - Instructions for Claude
+# FactoryMan - Agent Instructions
 
 ## Project Purpose
 
 This is the **FactoryMan repository**, an Elixir testing factory library.
 
-**FactoryMan is the product.** The blog schemas (Users, Authors, Posts, Tags) are just showcase examples.
-
-## What is FactoryMan?
-
-A macro-based testing factory library located in `/workspace/projects/factory_man/lib/factory_man.ex` that:
-- Generates `build_<name>/1` functions to create test data structs in memory
-- Generates `insert_<name>!/1` functions to build and insert into database (when repo configured)
-- Supports lifecycle hooks: `:before_build`, `:after_build`, `:before_insert`, `:after_insert`
-- Allows factory inheritance via `:extends` option
-- Integrates with Ecto repositories
+**FactoryMan is the product.** The blog schemas (Users, Authors, Posts, Tags) are just showcase
+examples — do not modify them unless specifically asked.
 
 ## Project Structure
 
 ```
 lib/
   factory_man.ex              # THE MAIN LIBRARY - core macro system
-  factory_man_demo/           # Example schemas (demo content, not the product)
-    users/user.ex
-    authors/author.ex
-    posts/post.ex
-    tags/tag.ex
-    posts_tags/post_tag.ex
+  factory_man/
+    sequence.ex               # Sequence generation (Agent-based counter)
 
-test/support/
-  factory.ex              # Base factory with repo and hooks
-  child_factory.ex        # Child factory extending base, contains all factory definitions
+test/
+  support/
+    factory_man_demo/
+      factory.ex              # Base factory (repo config, hooks)
+      factory/
+        child_factory.ex      # Child factory (all factory definitions)
+      users/user.ex           # Demo schemas (not the product)
+      authors/author.ex
+      posts/post.ex
+      tags/tag.ex
+      posts_tags/post_tag.ex
+      embedded_schema.ex
+      repo.ex
+      application.ex
+    data_case.ex
+  factory_man/
+    sequence_test.exs
+  factory_man_demo/
+    factory_test.exs
+    factory/
+      child_factory_test.exs  # Main test file (90 tests)
 ```
 
-## Example Domain (Demo Content)
+## Usage Rules
 
-The blog system demonstrates FactoryMan with realistic relationships:
+### Defining Factories
 
-- **User** (username) → has_one **Author**
-- **Author** (name) → has_many **Posts**
-- **Post** (title, content) ↔ **Tag** (many-to-many via posts_tags)
+The `deffactory` macro is the only way to define factories. It works like a function definition:
 
-These schemas exist to showcase how FactoryMan handles:
-- Simple attributes
-- One-to-one and one-to-many associations
-- Many-to-many relationships with join tables
-- Complex nested data building
-
-## Key Demonstrations
-
-1. **Base Factory Pattern** (`test/support/factory_man_demo/factory.ex`):
-   - Configures repo integration
-   - Sets up `after_insert_handler` that resets associations to `NotLoaded` (mimics raw DB queries)
-
-2. **Factory Inheritance** (`test/support/factory_man_demo/child_factory.ex`):
-   - Uses `extends: FactoryManDemo.Factory` to inherit base factory config
-   - Contains all factory definitions (user, author, lazy_user, etc.)
-   - Demonstrates defaults, custom parameter overrides, hooks, and lazy evaluation
-
-3. **Hook System**:
-   - `before_build_handler` - modifies data before struct creation
-   - `after_insert_handler` - processes data after database insertion
-
-## Database Connection Setup
-
-This project requires a Postgres database. See [AGENTS.LOCAL.md](./AGENTS.LOCAL.md) for local setup instructions.
-
-## Working with Persistent IEx Sessions
-
-### Using tmux for Interactive Sessions
-
-The workspace includes tmux at `tmux`. **Always use tmux for persistent IEx sessions** - don't try to run IEx commands directly with bash piping.
-
-For tmux commands and IEx session setup, see [AGENTS.LOCAL.md](./AGENTS.LOCAL.md).
-
-## Macro Implementation (`lib/factory_man.ex:222-285`)
-
-**API:** `factory(name, do: block)` - supports single expression OR multi-block syntax
-
-**How it works:**
-- Parses block to extract `build do` and `hooks do` sections
-- Backwards compatible: single expression treated as build block
-- Escapes build body AST with `Macro.escape(body, unquote: true)`
-- Merges factory-level hooks with module-level hooks (factory takes precedence)
-- Injects `var!(params)` for parameter access (params is ALWAYS a map)
-- Generates: `build_{name}/1`, `insert_{name}!/1`, `_build_{name}_without_hooks/1` (private)
-
-**Hook flow:** before_build → body → after_build → repo.insert! → before_insert → after_insert
-
-**Old syntax (still works):**
 ```elixir
-factory :user do
-  %User{username: Map.get(params, :username, "default")}
+# Canonical pattern - always follow this structure:
+deffactory name(params \\ %{}), struct: SchemaModule do
+  base_params = %{field: "default_value"}
+
+  Map.merge(base_params, params)
 end
 ```
 
-**New multi-block syntax:**
-```elixir
-factory :user do
-  build do
-    %User{username: Map.get(params, :username, "default")}
-  end
+Key rules:
+- The factory body must return a **map** (not a struct)
+- You must merge `params` yourself — FactoryMan does not auto-merge
+- The parameter is always a map (`%{}`), never a keyword list
+- Factory names are atoms — the generated functions use that name
 
-  hooks do
-    [after_build: fn user -> %{user | username: String.upcase(user.username)} end]
-  end
-end
+### Generated Function Naming
+
+For a factory named `:user` with `struct: User`:
+
+| Function                    | Returns     | Purpose                          |
+| --------------------------- | ----------- | -------------------------------- |
+| `build_user_params/0,1`     | `%{}`       | Plain map (for changesets, APIs)  |
+| `build_user_struct/0,1`     | `%User{}`   | Struct in memory (not persisted)  |
+| `insert_user!/1,2`          | `%User{}`   | Inserted into database            |
+| `build_user_params_list/1,2`| `[%{}, ...]`| List of params maps               |
+| `build_user_struct_list/1,2`| `[%User{}]` | List of structs                   |
+| `insert_user_list!/1,2,3`   | `[%User{}]` | List of inserted records          |
+
+For a factory **without** `struct:` option, only `build_*_params` and `build_*_params_list` are
+generated.
+
+For **embedded schemas**, `insert_*` functions are automatically skipped.
+
+### Hook Pipeline
+
+```
+build_user_params:
+  before_build_params -> [factory body + lazy eval] -> after_build_params
+
+build_user_struct (calls build_user_params internally):
+  -> before_build_struct -> struct!() -> after_build_struct
+
+insert_user! (calls build_user_struct internally):
+  -> before_insert -> Repo.insert!() -> after_insert
 ```
 
-**Usage:** `FactoryManDemo.ChildFactory.build_user(%{username: "alice"})`
+### Common Anti-Patterns
 
-## Important Notes for Claude
+- **Don't pass keyword lists as params.** Always use maps: `%{key: value}`, never `[key: value]`
+- **Don't forget `Map.merge(base_params, params)`** at the end of every factory body
+- **Don't use `build_user()` or `insert_user!()`** — the correct names include the type:
+  `build_user_struct()`, `build_user_params()`, `insert_user!()`
+- **Don't create structs in the factory body.** Return a plain map — FactoryMan calls `struct!()` for you
+- **Don't define factories outside of modules that `use FactoryMan`**
 
-- **The module documentation in `lib/factory_man.ex` may be out of date** - the API is actively being changed
-- This is NOT a blog application - it's a factory library demonstration
-- Don't "improve" the demo schemas unless specifically asked - they're examples
-- The interesting code is in `lib/factory_man.ex` and `test/support/`
-- If asked to work on "the project", clarify whether they mean FactoryMan library or the demo schemas
-- Always use tmux for interactive IEx sessions
-- **ALWAYS use `MIX_ENV=test` for factory work** - factories are in `test/support/`
-- **Testing factories: Use :user factory (FactoryManDemo.ChildFactory.build_user/1) - it's the root factory that others depend on**
-- **Don't create new factories - only work with existing ones**
+### Lazy Evaluation
 
-## Project Task Tracking
+0-arity functions are evaluated at build time. 1-arity functions receive the parent map:
 
-- **AGENTS.TODO.md** - Contains ongoing todo items and session notes
-  - Check this file at the start of each session for context
-  - Update with accomplishments and next steps when finishing work
+```elixir
+%{
+  created_at: fn -> DateTime.utc_now() end,           # 0-arity: called with no args
+  display_name: fn user -> "#{user.username} (User)" end  # 1-arity: receives parent map
+}
+```
+
+**Important:** 1-arity functions receive the map *before* lazy evaluation. Don't reference other
+lazy fields from a 1-arity function — they'll still be function references, not resolved values.
+
+### Sequences
+
+```elixir
+sequence("user")                                        # "user0", "user1", ...
+sequence(:email, fn n -> "user#{n}@example.com" end)    # custom formatter
+sequence(:role, ["admin", "user", "guest"])              # cycles through list
+sequence(:order, fn n -> "ORD-#{n}" end, start_at: 1000) # custom start
+```
+
+Reset in test setup: `FactoryMan.Sequence.reset()`
+
+## Development Notes
+
+- **ALWAYS use `MIX_ENV=test` for factory work** — factories are in `test/support/`
+- **Run tests:** `MIX_ENV=test mix test`
+- This is NOT a blog application — it's a factory library with blog schemas as examples
+- If asked to work on "the project", clarify: FactoryMan library or demo schemas?
+- Always use tmux for interactive IEx sessions (see AGENTS.LOCAL.md)
+- Don't create new factories — only work with existing ones unless asked
+- The root factory for testing is `:user` via `FactoryManDemo.Factory.ChildFactory.build_user_struct/1`
+
+## Database
+
+This project requires a Postgres database. See [AGENTS.LOCAL.md](./AGENTS.LOCAL.md) for setup.
+
+## Task Tracking
+
+- **AGENTS.TODO.md** — Check at session start for context, update when finishing work
