@@ -3,8 +3,8 @@ import Config
 config :factory_man, ecto_repos: [FactoryManDemo.Repo]
 
 config :factory_man, FactoryManDemo.Repo,
-  username: "postgres",
-  password: "your_postgres_password",
+  username: System.get_env("POSTGRES_USER", "postgres"),
+  password: System.get_env("POSTGRES_PASWORD", "your_postgres_password"),
   database: "factory_man_demo",
   hostname: System.get_env("POSTGRES_HOST", "localhost"),
   pool: Ecto.Adapters.SQL.Sandbox,
