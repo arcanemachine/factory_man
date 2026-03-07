@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-03-07
+
+### Fixed
+
+- Factory-level hooks were being flattened into top-level options instead of staying nested under
+  the `:hooks` key. This caused `_factory_opts()` and `_<name>_factory_opts()` debug functions to
+  return a polluted keyword list with hook keys (e.g. `:after_insert`) mixed in alongside
+  configuration keys (e.g. `:repo`, `:struct`). Hooks now stay properly nested.
+- Fixed several inaccurate examples in moduledoc and README (e.g. `build_api_payload()` corrected
+  to `build_api_payload_params()`, missing `Map.merge` calls in examples)
+
+### Changed
+
+- Replaced `List.pop_at` with `Enum.at` in `FactoryMan.Sequence` for list-based sequences
+  (avoids constructing an unused remainder list)
+- Reorganized demo factory definitions into logical sections: core, lazy evaluation, sequences,
+  factory options, and parameter patterns
+- Removed redundant demo factories (`params_only`, `with_custom_param_name`) and renamed
+  `with_after_build_params_hook` to `hooked`
+- Refactored test suite: reorganized into `describe` blocks by feature, removed ~21 redundant
+  tests, fixed misleading test names and broken assertions. 69 tests remain (was 90), all
+  meaningful.
+- Added Dialyzer configuration (`plt_add_apps: [:ex_unit]`). Zero warnings.
+- Expanded hooks documentation with pipeline diagram, reference table, precedence rules, and
+  practical examples
+- Added lazy evaluation ordering warning explaining that 1-arity lazy functions receive the
+  pre-evaluation map
+- Rewrote AGENTS.md with usage rules, canonical patterns, and anti-patterns
+
 ## [0.1.0] - 2026-02-08
 
 ### Added
