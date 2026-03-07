@@ -44,7 +44,7 @@ Build and insert some test data:
 ```elixir
 # Build params (e.g. for testing changesets)
 iex> MyApp.Factory.build_user_params(%{username: "test_user"})
-%{id: nil, username: "test_user"}
+%{username: "test_user"}
 
 # Build a struct (not persisted)
 iex> MyApp.Factory.build_user_struct(%{username: "test_user"})
