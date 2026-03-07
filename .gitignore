@@ -26,4 +26,6 @@ simple_factory_demo-*.tar
 /tmp/
 
 ## Custom rules
-.lexical
+
+# Language server files
+.expert
