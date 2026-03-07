@@ -14,6 +14,7 @@ defmodule FactoryMan.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      dialyzer: dialyzer(),
 
       # Hex
       description:
@@ -72,6 +73,12 @@ defmodule FactoryMan.MixProject do
       ],
       formatters: ["html"],
       main: "readme"
+    ]
+  end
+
+  defp dialyzer do
+    [
+      plt_add_apps: [:ex_unit]
     ]
   end
 
