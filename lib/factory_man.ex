@@ -672,7 +672,7 @@ defmodule FactoryMan do
       child_factory_hooks = Keyword.get(opts, :hooks, [])
       merged_hooks = Keyword.merge(parent_factory_hooks, child_factory_hooks)
 
-      merged_opts = Keyword.merge(parent_factory_opts, opts) |> Keyword.merge(merged_hooks)
+      merged_opts = Keyword.merge(parent_factory_opts, opts) |> Keyword.put(:hooks, merged_hooks)
 
       @doc "A debug helper function that shows all options for the `#{factory_name}` factory."
       def unquote(String.to_atom("_#{factory_name}_factory_opts"))(), do: unquote(merged_opts)
