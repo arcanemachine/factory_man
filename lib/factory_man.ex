@@ -732,7 +732,6 @@ defmodule FactoryMan do
             opts: opts,
             block: Macro.escape(block, unquote: true)
           ] do
-
       parent_factory_opts = Module.get_attribute(__MODULE__, :parent_factory_opts)
 
       parent_factory_hooks = Keyword.get(parent_factory_opts, :hooks, [])
@@ -946,12 +945,14 @@ defmodule FactoryMan do
     head_ast = {:\\, [], [Macro.var(var_name, nil), default]}
     user_var = Macro.var(var_name, nil)
 
-    %{acc |
-      head_ast: head_ast,
-      user_var: user_var,
-      arg_no_default: pattern,  # Keep the full pattern for implementation
-      has_pattern_match: true,
-      plain_var: var_ast
+    %{
+      acc
+      | head_ast: head_ast,
+        user_var: user_var,
+        # Keep the full pattern for implementation
+        arg_no_default: pattern,
+        has_pattern_match: true,
+        plain_var: var_ast
     }
   end
 
@@ -959,15 +960,17 @@ defmodule FactoryMan do
   # AST: {:\\, _, [{var, _, _}, default]}
   defp do_walk_arg_ast({:\\, _, [var_ast, _default]} = ast, acc) do
     var_name = extract_var_name(var_ast)
-    head_ast = ast  # Keep the full \\ expression for head
+    # Keep the full \\ expression for head
+    head_ast = ast
     user_var = Macro.var(var_name, nil)
 
-    %{acc |
-      head_ast: head_ast,
-      user_var: user_var,
-      arg_no_default: var_ast,
-      has_pattern_match: false,
-      plain_var: var_ast
+    %{
+      acc
+      | head_ast: head_ast,
+        user_var: user_var,
+        arg_no_default: var_ast,
+        has_pattern_match: false,
+        plain_var: var_ast
     }
   end
 
@@ -975,15 +978,18 @@ defmodule FactoryMan do
   # AST: {:=, _, [pattern, {var, _, _}]}
   defp do_walk_arg_ast({:=, _, [_pattern, var_ast]} = ast, acc) do
     var_name = extract_var_name(var_ast)
-    head_ast = Macro.var(var_name, nil)  # Use just the var for head (no destructuring)
+    # Use just the var for head (no destructuring)
+    head_ast = Macro.var(var_name, nil)
     user_var = Macro.var(var_name, nil)
 
-    %{acc |
-      head_ast: head_ast,
-      user_var: user_var,
-      arg_no_default: ast,  # Keep the full pattern for implementation
-      has_pattern_match: true,
-      plain_var: var_ast
+    %{
+      acc
+      | head_ast: head_ast,
+        user_var: user_var,
+        # Keep the full pattern for implementation
+        arg_no_default: ast,
+        has_pattern_match: true,
+        plain_var: var_ast
     }
   end
 
@@ -992,12 +998,13 @@ defmodule FactoryMan do
   defp do_walk_arg_ast({var_name, _, _} = ast, acc) when is_atom(var_name) do
     user_var = Macro.var(var_name, nil)
 
-    %{acc |
-      head_ast: ast,
-      user_var: user_var,
-      arg_no_default: ast,
-      has_pattern_match: false,
-      plain_var: ast
+    %{
+      acc
+      | head_ast: ast,
+        user_var: user_var,
+        arg_no_default: ast,
+        has_pattern_match: false,
+        plain_var: ast
     }
   end
 

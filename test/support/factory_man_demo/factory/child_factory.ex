@@ -5,78 +5,19 @@ defmodule FactoryManDemo.Factory.ChildFactory do
   alias FactoryManDemo.Authors.Author
   alias FactoryManDemo.Users.User
 
-  # Non-struct factory
-  deffactory non_struct(params \\ %{}) do
-    base_params = %{
-      name: "name-#{System.os_time()}",
-      age: Enum.random(1..100)
-    }
+  # ── Core factories ───────────────────────────────────────────────
 
-    Map.merge(base_params, params)
-  end
-
-  # Factory with custom `params` var name
-  deffactory with_custom_param_name(attrs \\ %{}) do
-    base_attrs = %{
-      name: "name-#{System.os_time()}",
-      age: Enum.random(1..100)
-    }
-
-    Map.merge(base_attrs, attrs)
-  end
-
-  # Factory with custom "after_build_params" hook
-  deffactory with_after_build_params_hook(params \\ %{}),
-    hooks: [after_build_params: &__MODULE__.after_build_params/1] do
-    base_params = %{
-      name: "name-#{System.os_time()}",
-      age: Enum.random(1..100)
-    }
-
-    Map.merge(base_params, params)
-  end
-
-  @doc "Puts a 'hello world' key-value pair into the params map."
-  def after_build_params(params), do: params |> Map.put(:hello, :world)
-
-  # Params-only struct factory (has params builder function, but no struct builder function)
-  deffactory params_only(params \\ %{}), struct: User do
-    base_params = %{username: "user-#{System.os_time()}"}
-
-    Map.merge(base_params, params)
-  end
-
-  # Non-insertable struct factory
-  deffactory non_insertable(params \\ %{}), struct: User, insert?: false do
-    base_params = %{username: "user-#{System.os_time()}"}
-
-    Map.merge(base_params, params)
-  end
-
-  # Simple variable without default - Type 1
-  deffactory simple_required(params), struct: User do
-    base_params = %{username: "required-#{System.os_time()}"}
-
-    Map.merge(base_params, params)
-  end
-
-  # Factory without fallback to default values (pattern match without default) - Type 3
-  deffactory no_default_fallback(%{username: username} = params), struct: User do
-    base_params = %{name: params[:name] || username}
-
-    Map.merge(base_params, params)
-  end
-
-  # Embedded schema (no insert)
-  deffactory embedded_schema(params \\ %{}), struct: EmbeddedSchema do
-    base_params = %{some_field: "some value"}
-
-    Map.merge(base_params, params)
-  end
-
-  # Factory that extends another factory
   deffactory user(params \\ %{}), struct: User do
     base_params = %{username: "user-#{System.os_time()}"}
+
+    Map.merge(base_params, params)
+  end
+
+  deffactory author(params \\ %{}), struct: Author do
+    base_params = %{
+      user: params[:user] || build_user_struct(),
+      name: "Some author"
+    }
 
     Map.merge(base_params, params)
   end
@@ -87,24 +28,30 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     base_params |> Map.merge(params) |> build_user_params()
   end
 
-  # Factory that has a nested factory
-  deffactory author(params \\ %{}), struct: Author do
+  deffactory embedded_schema(params \\ %{}), struct: EmbeddedSchema do
+    base_params = %{some_field: "some value"}
+
+    Map.merge(base_params, params)
+  end
+
+  deffactory non_struct(params \\ %{}) do
     base_params = %{
-      user: params[:user] || build_user_struct(),
-      name: "Some author"
+      name: "name-#{System.os_time()}",
+      age: Enum.random(1..100)
     }
 
     Map.merge(base_params, params)
   end
 
-  # Factory functions that demonstrate lazy evaluation
+  # ── Lazy evaluation ──────────────────────────────────────────────
+
   deffactory lazy_user(params \\ %{}), struct: User do
     base_params = %{
       username: "user-#{System.os_time()}",
       first_name: "User",
-      # Lazy 0-arity: Value computed at build time
+      # Lazy 0-arity: value computed at build time
       created_at: fn -> DateTime.utc_now() end,
-      # Lazy 1-arity: Access the parent struct being built
+      # Lazy 1-arity: receives the parent map
       full_name: fn user -> "#{user.first_name} Userson" end
     }
 
@@ -120,10 +67,9 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     Map.merge(base_params, params)
   end
 
-  # Factory demonstrating sequence generation custom start value
+  # ── Sequences ────────────────────────────────────────────────────
+
   deffactory user_sequence(params \\ %{}), struct: User do
-    # Use sequence with system OS time as the starting counter value
-    # This ensures unique usernames even across test runs
     base_params = %{
       username: FactoryMan.sequence(:user_id, fn n -> "user-#{n}" end, start_at: System.os_time())
     }
@@ -131,9 +77,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     Map.merge(base_params, params)
   end
 
-  # Factory demonstrating list-based (circular) sequences
   deffactory user_with_role(params \\ %{}), struct: User do
-    # Cycles through: user-{timestamp}-admin, user-{timestamp}-user, user-{timestamp}-guest...
     base_params = %{
       username: fn ->
         "user-#{System.os_time()}-#{FactoryMan.sequence(:user_role, ["admin", "user", "guest"])}"
@@ -143,10 +87,46 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     Map.merge(base_params, params)
   end
 
-  # Factory demonstrating combined pattern: pattern match WITH default
-  # This tests that we can have both pattern matching and default values
-  # The default includes the required key so pattern matching succeeds
-  deffactory combined_pattern(%{first_name: first_name} = params \\ %{first_name: "Default"}), struct: User do
+  # ── Factory options ──────────────────────────────────────────────
+
+  deffactory non_insertable(params \\ %{}), struct: User, insert?: false do
+    base_params = %{username: "user-#{System.os_time()}"}
+
+    Map.merge(base_params, params)
+  end
+
+  deffactory hooked(params \\ %{}),
+    hooks: [after_build_params: &__MODULE__.after_build_params_handler/1] do
+    base_params = %{
+      name: "name-#{System.os_time()}",
+      age: Enum.random(1..100)
+    }
+
+    Map.merge(base_params, params)
+  end
+
+  @doc "Adds a marker key to params (used to verify hooks work)."
+  def after_build_params_handler(params), do: Map.put(params, :hook_applied, true)
+
+  # ── Parameter patterns (macro behavior) ──────────────────────────
+
+  # Simple variable without default — params are required
+  deffactory simple_required(params), struct: User do
+    base_params = %{username: "required-#{System.os_time()}"}
+
+    Map.merge(base_params, params)
+  end
+
+  # Pattern match without default — requires specific keys
+  deffactory no_default_fallback(%{username: username} = params), struct: User do
+    base_params = %{name: params[:name] || username}
+
+    Map.merge(base_params, params)
+  end
+
+  # Pattern match with default — destructures but has fallback
+  deffactory combined_pattern(%{first_name: first_name} = params \\ %{first_name: "Default"}),
+    struct: User do
     base_params = %{
       username: "user-#{System.os_time()}",
       full_name: "#{first_name} User"
@@ -155,7 +135,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     Map.merge(base_params, params)
   end
 
-  # Factory demonstrating nested pattern matching
+  # Nested destructuring
   deffactory nested_pattern(%{author: %{name: name}} = params), struct: User do
     base_params = %{
       username: "author-#{String.downcase(name)}"
@@ -164,7 +144,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     Map.merge(base_params, params)
   end
 
-  # Factory demonstrating deep nested pattern with literal match
+  # Deep nested destructuring
   deffactory deep_nested(%{config: %{nested: %{value: val}}} = params), struct: User do
     base_params = %{
       username: "deep-#{val}"
