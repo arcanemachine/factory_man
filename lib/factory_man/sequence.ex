@@ -124,7 +124,7 @@ defmodule FactoryMan.Sequence do
       current_value = Map.get(sequences, sequence_name, 0)
       index = rem(current_value, length)
       new_sequences = Map.put(sequences, sequence_name, index + 1)
-      {value, _} = List.pop_at(list, index)
+      value = Enum.at(list, index)
       {value, new_sequences}
     end)
   end
