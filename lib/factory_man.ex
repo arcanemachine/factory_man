@@ -657,8 +657,8 @@ defmodule FactoryMan do
       Module.put_attribute(__MODULE__, :parent_factory_opts, parent_factory_opts)
 
       @doc """
-      A debug helper function that can show all the options for the `#{inspect(__MODULE__)}`
-      factory module.
+      A debug helper function that shows all the options for the `#{inspect(__MODULE__)}` factory
+      module.
       """
       def _factory_opts, do: @parent_factory_opts
     end
