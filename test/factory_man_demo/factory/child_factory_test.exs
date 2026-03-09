@@ -324,6 +324,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "circular sequence cycles through values" do
+      FactoryMan.Sequence.reset()
       user1 = ChildFactory.build_user_with_role_struct()
       user2 = ChildFactory.build_user_with_role_struct()
       user3 = ChildFactory.build_user_with_role_struct()
@@ -353,6 +354,42 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert function_exported?(ChildFactory, :build_non_insertable_params, 0)
       assert function_exported?(ChildFactory, :build_non_insertable_struct, 0)
       refute function_exported?(ChildFactory, :insert_non_insertable!, 0)
+    end
+
+    test "params?: false skips params builder generation" do
+      assert function_exported?(ChildFactory, :build_raw_user_struct, 0)
+      assert function_exported?(ChildFactory, :build_raw_user_struct, 1)
+      refute function_exported?(ChildFactory, :build_raw_user_params, 0)
+      refute function_exported?(ChildFactory, :build_raw_user_params, 1)
+      refute function_exported?(ChildFactory, :build_raw_user_params_list, 1)
+      refute function_exported?(ChildFactory, :build_raw_user_params_list, 2)
+    end
+
+    test "params?: false factory body returns struct directly" do
+      user = ChildFactory.build_raw_user_struct()
+      assert %User{} = user
+      assert String.starts_with?(user.username, "raw-user-")
+    end
+
+    test "params?: false factory accepts caller overrides" do
+      user = ChildFactory.build_raw_user_struct(%{username: "custom"})
+      assert user.username == "custom"
+    end
+
+    test "params?: false without struct: raises at compile time" do
+      assert_raise ArgumentError,
+                   ~r/params\?: false requires the struct: option/,
+                   fn ->
+                     Code.compile_string("""
+                     defmodule TestParamsFalseNoStruct do
+                       use FactoryMan
+
+                       deffactory broken(params \\\\ %{}), params?: false do
+                         %{}
+                       end
+                     end
+                     """)
+                   end
     end
 
     test "hooks transform factory output" do

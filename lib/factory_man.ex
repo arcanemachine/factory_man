@@ -746,48 +746,70 @@ defmodule FactoryMan do
       # Extract hooks - used many times throughout
       hooks = merged_hooks
 
-      # Generate params builder function
-      # Head declaration (simple variable with default if present)
-      def unquote({:"build_#{factory_name}_params", [], [head_ast]})
-
-      # Implementation (with pattern matching if needed, no default)
-      def unquote({:"build_#{factory_name}_params", [], [arg_ast_no_default]}) do
-        unquote(user_var) =
-          FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(unquote(user_var))
-
-        unquote(block)
-        |> FactoryMan.evaluate_lazy_attributes()
-        |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
+      # Validate: params?: false requires struct: option
+      if merged_opts[:params?] == false and is_nil(merged_opts[:struct]) do
+        raise ArgumentError,
+          "deffactory #{factory_name}: params?: false requires the struct: option, " <>
+            "otherwise no functions would be generated"
       end
 
-      # Generate params list builder function
-      # Only generate convenience function if there's no pattern match without default
-      if not has_pattern_match do
-        def unquote(:"build_#{factory_name}_params_list")(count)
-            when is_integer(count) and count >= 0 do
-          unquote(:"build_#{factory_name}_params_list")(count, %{})
+      # Generate params builder functions (skipped when params?: false)
+      if merged_opts[:params?] != false do
+        # Head declaration (simple variable with default if present)
+        def unquote({:"build_#{factory_name}_params", [], [head_ast]})
+
+        # Implementation (with pattern matching if needed, no default)
+        def unquote({:"build_#{factory_name}_params", [], [arg_ast_no_default]}) do
+          unquote(user_var) =
+            FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(unquote(user_var))
+
+          unquote(block)
+          |> FactoryMan.evaluate_lazy_attributes()
+          |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
+        end
+
+        # Generate params list builder function
+        # Only generate convenience function if there's no pattern match without default
+        if not has_pattern_match do
+          def unquote(:"build_#{factory_name}_params_list")(count)
+              when is_integer(count) and count >= 0 do
+            unquote(:"build_#{factory_name}_params_list")(count, %{})
+          end
+        end
+
+        def unquote(:"build_#{factory_name}_params_list")(count, params)
+            when is_integer(count) and count >= 0 and is_map(params) do
+          Stream.repeatedly(fn -> unquote(:"build_#{factory_name}_params")(params) end)
+          |> Enum.take(count)
         end
       end
 
-      def unquote(:"build_#{factory_name}_params_list")(count, params)
-          when is_integer(count) and count >= 0 and is_map(params) do
-        Stream.repeatedly(fn -> unquote(:"build_#{factory_name}_params")(params) end)
-        |> Enum.take(count)
-      end
-
       if merged_opts[:struct] != nil and merged_opts[:build_struct?] != false do
-        # Generate struct builder function
-        # Head declaration (simple variable with default if present)
-        def unquote({:"build_#{factory_name}_struct", [], [head_ast]})
+        if merged_opts[:params?] != false do
+          # Generate struct builder function (standard: delegates to params builder)
+          # Head declaration (simple variable with default if present)
+          def unquote({:"build_#{factory_name}_struct", [], [head_ast]})
 
-        # Implementation - uses plain_var_ast since pattern match variables
-        # are only needed in the params builder body
-        def unquote({:"build_#{factory_name}_struct", [], [plain_var_ast]}) do
-          unquote(user_var)
-          |> unquote(:"build_#{factory_name}_params")()
-          |> then(&FactoryMan.get_hook_handler(unquote(hooks), :before_build_struct).(&1))
-          |> then(&struct!(unquote(merged_opts[:struct]), &1))
-          |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
+          # Implementation - uses plain_var_ast since pattern match variables
+          # are only needed in the params builder body
+          def unquote({:"build_#{factory_name}_struct", [], [plain_var_ast]}) do
+            unquote(user_var)
+            |> unquote(:"build_#{factory_name}_params")()
+            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :before_build_struct).(&1))
+            |> then(&struct!(unquote(merged_opts[:struct]), &1))
+            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
+          end
+        else
+          # Generate struct builder function (params?: false: body returns struct directly)
+          # Head declaration (simple variable with default if present)
+          def unquote({:"build_#{factory_name}_struct", [], [head_ast]})
+
+          # Implementation - uses arg_ast_no_default since pattern matching
+          # is needed in the body (same role as params builder in standard mode)
+          def unquote({:"build_#{factory_name}_struct", [], [arg_ast_no_default]}) do
+            unquote(block)
+            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
+          end
         end
 
         # Generate struct list builder function

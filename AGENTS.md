@@ -35,7 +35,7 @@ test/
   factory_man_demo/
     factory_test.exs
     factory/
-      child_factory_test.exs  # Main test file (90 tests)
+      child_factory_test.exs  # Main test file
 ```
 
 ## Usage Rules
@@ -54,7 +54,8 @@ end
 ```
 
 Key rules:
-- The factory body must return a **map** (not a struct)
+- The factory body must return a **map** (not a struct), unless using `params?: false`
+- With `params?: false`, the body returns a **struct** directly (skips params builder + `struct!()`)
 - You must merge `params` yourself — FactoryMan does not auto-merge
 - The parameter is always a map (`%{}`), never a keyword list
 - Factory names are atoms — the generated functions use that name
@@ -96,7 +97,7 @@ insert_user! (calls build_user_struct internally):
 - **Don't forget `Map.merge(base_params, params)`** at the end of every factory body
 - **Don't use `build_user()` or `insert_user!()`** — the correct names include the type:
   `build_user_struct()`, `build_user_params()`, `insert_user!()`
-- **Don't create structs in the factory body.** Return a plain map — FactoryMan calls `struct!()` for you
+- **Don't create structs in the factory body** (unless using `params?: false`). Return a plain map — FactoryMan calls `struct!()` for you
 - **Don't define factories outside of modules that `use FactoryMan`**
 
 ### Lazy Evaluation
@@ -131,13 +132,9 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
 - This is NOT a blog application — it's a factory library with blog schemas as examples
 - If asked to work on "the project", clarify: FactoryMan library or demo schemas?
 - Always use tmux for interactive IEx sessions (see AGENTS.LOCAL.md)
-- Don't create new factories — only work with existing ones unless asked
 - The root factory for testing is `:user` via `FactoryManDemo.Factory.ChildFactory.build_user_struct/1`
 
 ## Database
 
 This project requires a Postgres database. See [AGENTS.LOCAL.md](./AGENTS.LOCAL.md) for setup.
 
-## Task Tracking
-
-- **AGENTS.TODO.md** — Check at session start for context, update when finishing work

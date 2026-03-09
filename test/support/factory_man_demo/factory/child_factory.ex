@@ -89,6 +89,11 @@ defmodule FactoryManDemo.Factory.ChildFactory do
 
   # ── Factory options ──────────────────────────────────────────────
 
+  deffactory raw_user(params \\ %{}), struct: User, params?: false do
+    username = Map.get(params, :username, "raw-user-#{System.os_time()}")
+    %User{username: username}
+  end
+
   deffactory non_insertable(params \\ %{}), struct: User, insert?: false do
     base_params = %{username: "user-#{System.os_time()}"}
 
