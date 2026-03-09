@@ -316,9 +316,9 @@ defmodule FactoryMan do
   - `:insert?` - Set to `false` to prevent accidental database insertion (e.g. for read-only test
   data)
   - `:build_struct?` - Set to `false` when you only need raw params (e.g. for API request bodies)
-  - `:params?` - Set to `false` to skip params builder generation. The factory body returns a
-  struct directly instead of a params map. Requires `:struct` to be set. Useful for complex
-  factories that need full control over struct construction
+  - `:params?` (boolean, defaut: `true`) - Set to `false` to skip params builder generation. The
+  factory body returns a struct directly instead of a params map. Requires `:struct` to be set.
+  Useful for complex factories that need full control over struct construction
   - `:hooks` - Additional hooks merged with module-level hooks
 
   ## Factory Inheritance
@@ -1343,18 +1343,19 @@ defmodule FactoryMan do
 
   ## Examples
 
-      iex> FactoryMan.evaluate_lazy_attributes(%{name: "test", timestamp: fn -> 12345 end})
+      iex> FactoryMan.evaluate_lazy_attributes(
+      ...> %{name: "test", timestamp: fn -> System.os_time() end}
+      ...> )
       %{name: "test", timestamp: 12345}
 
-      iex> FactoryMan.evaluate_lazy_attributes(%{first: "John", last: fn attrs -> attrs.first <> " Smith" end})
+      iex> FactoryMan.evaluate_lazy_attributes(
+      ...>   %{first: "John", last: fn attrs -> attrs.first <> " Smith" end}
+      ...> )
       %{first: "John", last: "John Smith"}
   """
   @spec evaluate_lazy_attributes(struct | map) :: struct | map
   def evaluate_lazy_attributes(%{__struct__: record} = factory) do
-    struct!(
-      record,
-      factory |> Map.from_struct() |> do_evaluate_lazy_attributes(factory)
-    )
+    struct!(record, factory |> Map.from_struct() |> do_evaluate_lazy_attributes(factory))
   end
 
   def evaluate_lazy_attributes(attrs) when is_map(attrs) do

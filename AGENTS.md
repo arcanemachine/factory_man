@@ -129,8 +129,8 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
 
 - **ALWAYS use `MIX_ENV=test` for factory work** — factories are in `test/support/`
 - **Run tests:** `MIX_ENV=test mix test`
-- This is NOT a blog application — it's a factory library with blog schemas as examples
-- If asked to work on "the project", clarify: FactoryMan library or demo schemas?
+- Run `mix format` when you have completed a task.
+- If asked to work on this project, clarify: FactoryMan library or demo schemas?
 - Always use tmux for interactive IEx sessions (see AGENTS.LOCAL.md)
 - The root factory for testing is `:user` via `FactoryManDemo.Factory.ChildFactory.build_user_struct/1`
 
