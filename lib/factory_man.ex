@@ -691,6 +691,19 @@ defmodule FactoryMan do
   `build_admin_user_params/0,1`, `build_admin_user_struct/0,1`, `insert_admin_user!/0,1,2`,
   plus list variants.
 
+  ### Custom naming with `:as`
+
+  The `:as` option overrides the combined `{variant}_{base}` name:
+
+  ```elixir
+  defvariant moderator(params \\\\ %{}), for: :user, as: :mod do
+    Map.merge(params, %{role: "moderator"})
+  end
+  ```
+
+  This generates `build_mod_struct/0,1`, `insert_mod!/0,1,2`, etc.
+  — instead of the default `build_moderator_user_struct`.
+
   ## Debugging
 
   FactoryMan generates debug functions showing configured options:
@@ -821,8 +834,8 @@ defmodule FactoryMan do
       # Validate: params?: false requires struct: option
       if merged_opts[:params?] == false and is_nil(merged_opts[:struct]) do
         raise ArgumentError,
-          "deffactory #{factory_name}: params?: false requires the struct: option, " <>
-            "otherwise no functions would be generated"
+              "deffactory #{factory_name}: params?: false requires the struct: option, " <>
+                "otherwise no functions would be generated"
       end
 
       # Generate params builder functions (skipped when params?: false)
@@ -1000,7 +1013,10 @@ defmodule FactoryMan do
 
   ## Options
 
-  - `:for` - (required) The name of the base factory to wrap (e.g. `:user`)
+  - `:for` - (atom, required) The name of the base factory to wrap (e.g. `:user`)
+
+  - `:as` - Instead of the default `<variant>_<base>` structure (e.g. `admin_user`), you may
+  specify a custom name for the factory (e.g. `:admin`)
   """
 
   defmacro defvariant(variant_head, opts, do: block) do
@@ -1015,10 +1031,12 @@ defmodule FactoryMan do
     plain_var_ast = extraction.plain_var
 
     base_factory_name = opts[:for] || raise ArgumentError, "defvariant requires the :for option"
+    as_name = opts[:as]
 
     quote bind_quoted: [
             variant_name: variant_name,
             base_factory_name: base_factory_name,
+            as_name: as_name,
             arg_ast: Macro.escape(arg_ast, unquote: true),
             head_ast: Macro.escape(head_ast, unquote: true),
             user_var: Macro.escape(user_var, unquote: true),
@@ -1034,37 +1052,36 @@ defmodule FactoryMan do
 
       if is_nil(base_entry) do
         raise ArgumentError,
-          "defvariant #{variant_name}: base factory :#{base_factory_name} not found. " <>
-            "Ensure deffactory :#{base_factory_name} is defined before defvariant."
+              "defvariant #{variant_name}: base factory :#{base_factory_name} not found. " <>
+                "Ensure deffactory :#{base_factory_name} is defined before defvariant."
       end
 
       {_base_name, base_opts} = base_entry
 
       # Variant function names combine variant + base: e.g. :admin + :user = :admin_user
-      full_name = :"#{variant_name}_#{base_factory_name}"
+      # The :as option overrides this combined name.
+      full_name = as_name || :"#{variant_name}_#{base_factory_name}"
 
       # Generate params builder variant (if base factory has params)
       if base_opts[:params?] != false do
-        def unquote({:"build_#{variant_name}_#{base_factory_name}_params", [], [head_ast]})
+        def unquote({:"build_#{full_name}_params", [], [head_ast]})
 
-        def unquote(
-              {:"build_#{variant_name}_#{base_factory_name}_params", [], [arg_ast_no_default]}
-            ) do
+        def unquote({:"build_#{full_name}_params", [], [arg_ast_no_default]}) do
           unquote(block)
           |> unquote(:"build_#{base_factory_name}_params")()
         end
 
         if not has_pattern_match do
-          def unquote(:"build_#{variant_name}_#{base_factory_name}_params_list")(count)
+          def unquote(:"build_#{full_name}_params_list")(count)
               when is_integer(count) and count >= 0 do
-            unquote(:"build_#{variant_name}_#{base_factory_name}_params_list")(count, %{})
+            unquote(:"build_#{full_name}_params_list")(count, %{})
           end
         end
 
-        def unquote(:"build_#{variant_name}_#{base_factory_name}_params_list")(count, params)
+        def unquote(:"build_#{full_name}_params_list")(count, params)
             when is_integer(count) and count >= 0 and is_map(params) do
           Stream.repeatedly(fn ->
-            unquote(:"build_#{variant_name}_#{base_factory_name}_params")(params)
+            unquote(:"build_#{full_name}_params")(params)
           end)
           |> Enum.take(count)
         end
@@ -1072,26 +1089,24 @@ defmodule FactoryMan do
 
       # Generate struct builder variant (if base factory has struct)
       if base_opts[:struct] != nil and base_opts[:build_struct?] != false do
-        def unquote({:"build_#{variant_name}_#{base_factory_name}_struct", [], [head_ast]})
+        def unquote({:"build_#{full_name}_struct", [], [head_ast]})
 
-        def unquote(
-              {:"build_#{variant_name}_#{base_factory_name}_struct", [], [arg_ast_no_default]}
-            ) do
+        def unquote({:"build_#{full_name}_struct", [], [arg_ast_no_default]}) do
           unquote(block)
           |> unquote(:"build_#{base_factory_name}_struct")()
         end
 
         if not has_pattern_match do
-          def unquote(:"build_#{variant_name}_#{base_factory_name}_struct_list")(count)
+          def unquote(:"build_#{full_name}_struct_list")(count)
               when is_integer(count) and count >= 0 do
-            unquote(:"build_#{variant_name}_#{base_factory_name}_struct_list")(count, %{})
+            unquote(:"build_#{full_name}_struct_list")(count, %{})
           end
         end
 
-        def unquote(:"build_#{variant_name}_#{base_factory_name}_struct_list")(count, params)
+        def unquote(:"build_#{full_name}_struct_list")(count, params)
             when is_integer(count) and count >= 0 and is_map(params) do
           Stream.repeatedly(fn ->
-            unquote(:"build_#{variant_name}_#{base_factory_name}_struct")(params)
+            unquote(:"build_#{full_name}_struct")(params)
           end)
           |> Enum.take(count)
         end
@@ -1109,22 +1124,20 @@ defmodule FactoryMan do
 
         if is_insertable_ecto_schema_factory? and insert? != false do
           # Head declaration
-          def unquote({:"insert_#{variant_name}_#{base_factory_name}!", [], [head_ast]})
+          def unquote({:"insert_#{full_name}!", [], [head_ast]})
 
           if not has_pattern_match do
-            def unquote(:"insert_#{variant_name}_#{base_factory_name}!")(repo_insert_opts)
+            def unquote(:"insert_#{full_name}!")(repo_insert_opts)
                 when is_list(repo_insert_opts) do
-              unquote(:"insert_#{variant_name}_#{base_factory_name}!")(%{}, repo_insert_opts)
+              unquote(:"insert_#{full_name}!")(%{}, repo_insert_opts)
             end
           end
 
-          def unquote(:"insert_#{variant_name}_#{base_factory_name}!")(
-                unquote(plain_var_ast)
-              ) do
-            unquote(:"insert_#{variant_name}_#{base_factory_name}!")(unquote(user_var), [])
+          def unquote(:"insert_#{full_name}!")(unquote(plain_var_ast)) do
+            unquote(:"insert_#{full_name}!")(unquote(user_var), [])
           end
 
-          def unquote(:"insert_#{variant_name}_#{base_factory_name}!")(
+          def unquote(:"insert_#{full_name}!")(
                 unquote(arg_ast_no_default),
                 repo_insert_opts
               )
@@ -1136,17 +1149,17 @@ defmodule FactoryMan do
 
           # List insert variants
           if not has_pattern_match do
-            def unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(count)
+            def unquote(:"insert_#{full_name}_list!")(count)
                 when is_integer(count) and count >= 0 do
-              unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(count, %{}, [])
+              unquote(:"insert_#{full_name}_list!")(count, %{}, [])
             end
 
-            def unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(
+            def unquote(:"insert_#{full_name}_list!")(
                   count,
                   repo_insert_opts
                 )
                 when is_integer(count) and count >= 0 and is_list(repo_insert_opts) do
-              unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(
+              unquote(:"insert_#{full_name}_list!")(
                 count,
                 %{},
                 repo_insert_opts
@@ -1154,12 +1167,12 @@ defmodule FactoryMan do
             end
           end
 
-          def unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(count, params)
+          def unquote(:"insert_#{full_name}_list!")(count, params)
               when is_integer(count) and count >= 0 and is_map(params) do
-            unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(count, params, [])
+            unquote(:"insert_#{full_name}_list!")(count, params, [])
           end
 
-          def unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(
+          def unquote(:"insert_#{full_name}_list!")(
                 count,
                 params,
                 repo_insert_opts
@@ -1167,7 +1180,7 @@ defmodule FactoryMan do
               when is_integer(count) and count >= 0 and is_map(params) and
                      is_list(repo_insert_opts) do
             Stream.repeatedly(fn ->
-              unquote(:"insert_#{variant_name}_#{base_factory_name}!")(params, repo_insert_opts)
+              unquote(:"insert_#{full_name}!")(params, repo_insert_opts)
             end)
             |> Enum.take(count)
           end

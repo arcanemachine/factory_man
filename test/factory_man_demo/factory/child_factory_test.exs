@@ -491,6 +491,16 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert Enum.all?(users, &match?(%User{}, &1))
     end
 
+    test "variant with :as option customizes the generated function name" do
+      # The moderator variant uses `as: :mod`, so functions are named `*_mod_*` not `*_moderator_user_*`
+      mod = ChildFactory.build_mod_struct()
+      assert %User{} = mod
+      assert String.starts_with?(mod.username, "mod-")
+
+      # The default name should not exist
+      refute function_exported?(ChildFactory, :build_moderator_user_struct, 0)
+    end
+
     test "variant without base factory raises at compile time" do
       assert_raise ArgumentError,
                    ~r/base factory :nonexistent not found/,

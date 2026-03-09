@@ -3,7 +3,7 @@ defmodule FactoryMan.MixProject do
 
   @project_name "Factory Man"
   @source_url "https://github.com/arcanemachine/factory_man"
-  @version "0.2.0"
+  @version "0.2.1"
 
   def project do
     [

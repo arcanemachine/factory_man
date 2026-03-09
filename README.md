@@ -182,7 +182,7 @@ Why this structure?
 struct shape is needed.
 
 - `build_*_struct` - For setting association fields on other structs being built in memory. Use
-this when the record does not need to exist in the database.
+this when the record does not need to exist in the database at the time the struct is generated.
 
 - `insert_*!` - When a foreign key constraint requires the record to exist in the database, or
 when the test itself queries the database for this record.
@@ -229,11 +229,6 @@ A variant wraps a base factory. It transforms params **before** the base factory
 preprocessor, not a postprocessor). The variant is defined after the base factory in your code,
 but executes before it at runtime:
 
-```text
-Code order:     deffactory user(...)   ->  defvariant admin(...), for: :user
-Execution order:  admin (preprocessor)  ->  user (base factory)
-```
-
 ```elixir
 deffactory user(params \\ %{}), struct: User do
   %{username: sequence("user"), role: "member"}
@@ -245,8 +240,26 @@ defvariant admin(params \\ %{}), for: :user do
 end
 ```
 
+```text
+Code order:     deffactory user(...)   ->  defvariant admin(...), for: :user
+Execution order:  admin (preprocessor)  ->  user (base factory)
+```
+
 This generates `build_admin_user_struct/0,1`, `insert_admin_user!/0,1,2`, and list variants.
 Calling `build_admin_user_struct()` is equivalent to `build_user_struct(%{role: "admin"})`.
+
+### Custom naming with `:as`
+
+The `:as` option overrides the combined `{variant}_{base}` name:
+
+```elixir
+defvariant moderator(params \\ %{}), for: :user, as: :mod do
+  Map.merge(params, %{role: "moderator"})
+end
+```
+
+This generates `build_mod_struct/0,1`, `insert_mod!/0,1,2`, etc.
+— instead of the default `build_moderator_user_struct`.
 
 ## Documentation
 

@@ -97,6 +97,10 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     Map.merge(%{username: "guest", first_name: "Guest"}, params)
   end
 
+  defvariant moderator(params \\ %{}), for: :user, as: :mod do
+    Map.merge(params, %{username: "mod-#{System.os_time()}"})
+  end
+
   # ── Factory options ──────────────────────────────────────────────
 
   deffactory raw_user(params \\ %{}), struct: User, params?: false do
