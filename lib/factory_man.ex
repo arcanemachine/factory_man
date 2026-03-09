@@ -653,6 +653,44 @@ defmodule FactoryMan do
   `params?: false` can also be set at the module level with `use FactoryMan, params?: false`,
   then overridden per-factory with `params?: true` if needed.
 
+  ## Variant Factories (`defvariant`)
+
+  A variant wraps an existing base factory. It transforms the caller's params **before** passing
+  them to the base factory. Think of it as a preprocessor: the variant runs first, then the
+  base factory runs with the transformed params.
+
+  This ordering can be counterintuitive because the variant is defined **after** the base
+  factory in your code, but its logic executes **before** the base factory at runtime:
+
+  ```text
+  Code order:     deffactory user(...)   ->  defvariant admin(...), for: :user
+  Execution order:  admin (preprocessor)  ->  user (base factory)
+  ```
+
+  ### Example
+
+  ```elixir
+  deffactory user(params \\\\ %{}), struct: User do
+    %{username: sequence("user"), role: "member"}
+    |> Map.merge(params)
+  end
+
+  # The admin variant sets role to "admin", then delegates to :user.
+  # Caller params override variant defaults (merge variant defaults first,
+  # then caller params on top):
+  defvariant admin(params \\\\ %{}), for: :user do
+    Map.merge(%{role: "admin"}, params)
+  end
+  ```
+
+  Calling `build_admin_user_struct()` is equivalent to `build_user_struct(%{role: "admin"})`.
+  Calling `build_admin_user_struct(%{role: "superadmin"})` passes `%{role: "superadmin"}` to
+  the base factory because the caller's params override the variant defaults.
+
+  Generated functions follow the pattern `{variant}_{base}`:
+  `build_admin_user_params/0,1`, `build_admin_user_struct/0,1`, `insert_admin_user!/0,1,2`,
+  plus list variants.
+
   ## Debugging
 
   FactoryMan generates debug functions showing configured options:
@@ -669,7 +707,9 @@ defmodule FactoryMan do
   defmacro __using__(opts \\ []) do
     quote do
       import unquote(__MODULE__),
-        only: [deffactory: 2, deffactory: 3]
+        only: [deffactory: 2, deffactory: 3, defvariant: 3]
+
+      Module.register_attribute(__MODULE__, :factory_man_registry, accumulate: true)
 
       parent_factory_opts =
         case unquote(opts)[:extends] do
@@ -926,6 +966,208 @@ defmodule FactoryMan do
                      is_list(repo_insert_opts) do
             Stream.repeatedly(fn ->
               unquote(:"insert_#{factory_name}!")(params, repo_insert_opts)
+            end)
+            |> Enum.take(count)
+          end
+        end
+      end
+
+      # Register factory metadata so defvariant can look up base factory capabilities
+      @factory_man_registry {factory_name, merged_opts}
+    end
+  end
+
+  @doc """
+  Defines a variant factory that wraps a base factory.
+
+  A variant is a preprocessor: it receives the caller's params, transforms them, and delegates
+  to the base factory. The variant body runs **before** the base factory, not after.
+
+  ## Example
+
+      deffactory user(params \\\\ %{}), struct: User do
+        %{username: sequence("user"), role: "member"} |> Map.merge(params)
+      end
+
+      # The variant body receives params first, transforms them, then passes to :user
+      defvariant admin(params \\\\ %{}), for: :user do
+        Map.merge(params, %{role: "admin"})
+      end
+
+      # Generated: build_admin_user_struct/0,1, insert_admin_user!/0,1,2, etc.
+      # Calling build_admin_user_struct() is equivalent to:
+      #   build_user_struct(%{role: "admin"})
+
+  ## Options
+
+  - `:for` - (required) The name of the base factory to wrap (e.g. `:user`)
+  """
+
+  defmacro defvariant(variant_head, opts, do: block) do
+    extraction = extract_factory_args(variant_head)
+
+    variant_name = extraction.name
+    arg_ast = extraction.arg_ast
+    head_ast = extraction.head_ast
+    user_var = extraction.user_var
+    arg_ast_no_default = extraction.arg_no_default
+    has_pattern_match = extraction.has_pattern_match
+    plain_var_ast = extraction.plain_var
+
+    base_factory_name = opts[:for] || raise ArgumentError, "defvariant requires the :for option"
+
+    quote bind_quoted: [
+            variant_name: variant_name,
+            base_factory_name: base_factory_name,
+            arg_ast: Macro.escape(arg_ast, unquote: true),
+            head_ast: Macro.escape(head_ast, unquote: true),
+            user_var: Macro.escape(user_var, unquote: true),
+            arg_ast_no_default: Macro.escape(arg_ast_no_default, unquote: true),
+            has_pattern_match: has_pattern_match,
+            plain_var_ast: Macro.escape(plain_var_ast, unquote: true),
+            block: Macro.escape(block, unquote: true)
+          ] do
+      # Look up the base factory's registered metadata
+      base_entry =
+        @factory_man_registry
+        |> Enum.find(fn {name, _opts} -> name == base_factory_name end)
+
+      if is_nil(base_entry) do
+        raise ArgumentError,
+          "defvariant #{variant_name}: base factory :#{base_factory_name} not found. " <>
+            "Ensure deffactory :#{base_factory_name} is defined before defvariant."
+      end
+
+      {_base_name, base_opts} = base_entry
+
+      # Variant function names combine variant + base: e.g. :admin + :user = :admin_user
+      full_name = :"#{variant_name}_#{base_factory_name}"
+
+      # Generate params builder variant (if base factory has params)
+      if base_opts[:params?] != false do
+        def unquote({:"build_#{variant_name}_#{base_factory_name}_params", [], [head_ast]})
+
+        def unquote(
+              {:"build_#{variant_name}_#{base_factory_name}_params", [], [arg_ast_no_default]}
+            ) do
+          unquote(block)
+          |> unquote(:"build_#{base_factory_name}_params")()
+        end
+
+        if not has_pattern_match do
+          def unquote(:"build_#{variant_name}_#{base_factory_name}_params_list")(count)
+              when is_integer(count) and count >= 0 do
+            unquote(:"build_#{variant_name}_#{base_factory_name}_params_list")(count, %{})
+          end
+        end
+
+        def unquote(:"build_#{variant_name}_#{base_factory_name}_params_list")(count, params)
+            when is_integer(count) and count >= 0 and is_map(params) do
+          Stream.repeatedly(fn ->
+            unquote(:"build_#{variant_name}_#{base_factory_name}_params")(params)
+          end)
+          |> Enum.take(count)
+        end
+      end
+
+      # Generate struct builder variant (if base factory has struct)
+      if base_opts[:struct] != nil and base_opts[:build_struct?] != false do
+        def unquote({:"build_#{variant_name}_#{base_factory_name}_struct", [], [head_ast]})
+
+        def unquote(
+              {:"build_#{variant_name}_#{base_factory_name}_struct", [], [arg_ast_no_default]}
+            ) do
+          unquote(block)
+          |> unquote(:"build_#{base_factory_name}_struct")()
+        end
+
+        if not has_pattern_match do
+          def unquote(:"build_#{variant_name}_#{base_factory_name}_struct_list")(count)
+              when is_integer(count) and count >= 0 do
+            unquote(:"build_#{variant_name}_#{base_factory_name}_struct_list")(count, %{})
+          end
+        end
+
+        def unquote(:"build_#{variant_name}_#{base_factory_name}_struct_list")(count, params)
+            when is_integer(count) and count >= 0 and is_map(params) do
+          Stream.repeatedly(fn ->
+            unquote(:"build_#{variant_name}_#{base_factory_name}_struct")(params)
+          end)
+          |> Enum.take(count)
+        end
+
+        # Generate insert variant -- delegates to base factory's insert
+        # (reuses base factory's hooks, repo config, and insert pipeline)
+        struct_module = base_opts[:struct]
+        repo = base_opts[:repo]
+        insert? = base_opts[:insert?]
+
+        is_insertable_ecto_schema_factory? =
+          ((not is_nil(repo) and Code.ensure_compiled!(struct_module)) &&
+             function_exported?(struct_module, :__schema__, 1)) and
+            struct_module.__schema__(:source) != nil
+
+        if is_insertable_ecto_schema_factory? and insert? != false do
+          # Head declaration
+          def unquote({:"insert_#{variant_name}_#{base_factory_name}!", [], [head_ast]})
+
+          if not has_pattern_match do
+            def unquote(:"insert_#{variant_name}_#{base_factory_name}!")(repo_insert_opts)
+                when is_list(repo_insert_opts) do
+              unquote(:"insert_#{variant_name}_#{base_factory_name}!")(%{}, repo_insert_opts)
+            end
+          end
+
+          def unquote(:"insert_#{variant_name}_#{base_factory_name}!")(
+                unquote(plain_var_ast)
+              ) do
+            unquote(:"insert_#{variant_name}_#{base_factory_name}!")(unquote(user_var), [])
+          end
+
+          def unquote(:"insert_#{variant_name}_#{base_factory_name}!")(
+                unquote(arg_ast_no_default),
+                repo_insert_opts
+              )
+              when is_list(repo_insert_opts) do
+            # Transform params via variant body, then delegate to base insert
+            unquote(block)
+            |> unquote(:"insert_#{base_factory_name}!")(repo_insert_opts)
+          end
+
+          # List insert variants
+          if not has_pattern_match do
+            def unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(count)
+                when is_integer(count) and count >= 0 do
+              unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(count, %{}, [])
+            end
+
+            def unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(
+                  count,
+                  repo_insert_opts
+                )
+                when is_integer(count) and count >= 0 and is_list(repo_insert_opts) do
+              unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(
+                count,
+                %{},
+                repo_insert_opts
+              )
+            end
+          end
+
+          def unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(count, params)
+              when is_integer(count) and count >= 0 and is_map(params) do
+            unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(count, params, [])
+          end
+
+          def unquote(:"insert_#{variant_name}_#{base_factory_name}_list!")(
+                count,
+                params,
+                repo_insert_opts
+              )
+              when is_integer(count) and count >= 0 and is_map(params) and
+                     is_list(repo_insert_opts) do
+            Stream.repeatedly(fn ->
+              unquote(:"insert_#{variant_name}_#{base_factory_name}!")(params, repo_insert_opts)
             end)
             |> Enum.take(count)
           end

@@ -13,7 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of a params map. No `build_*_params` functions are generated. Useful for complex
   factories that need full control over struct construction (e.g. resolving associations from
   other factories, conditional logic). Can be set at module level or factory level.
+- `defvariant` macro for defining variant factories that wrap a base factory. The variant body
+  is a preprocessor: it transforms caller params before delegating to the base factory. Generates
+  the full set of named functions (e.g. `build_admin_user_struct/0,1`, `insert_admin_user!/0,1,2`).
 - Compile-time validation: `params?: false` without `struct:` raises `ArgumentError`
+- Compile-time validation: `defvariant` referencing undefined base factory raises `ArgumentError`
 
 ### Fixed
 

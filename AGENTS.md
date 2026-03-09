@@ -42,7 +42,7 @@ test/
 
 ### Defining Factories
 
-The `deffactory` macro is the only way to define factories. It works like a function definition:
+Use `deffactory` to define factories and `defvariant` to define variants of existing factories:
 
 ```elixir
 # Canonical pattern - always follow this structure:

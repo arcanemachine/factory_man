@@ -457,6 +457,57 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
   end
 
+  # ── Variants ────────────────────────────────────────────────────
+
+  describe "defvariant" do
+    test "variant generates params that delegate to base factory" do
+      params = ChildFactory.build_admin_user_params()
+      assert is_map(params)
+      assert String.starts_with?(params.username, "admin-")
+    end
+
+    test "variant generates struct that delegate to base factory" do
+      user = ChildFactory.build_admin_user_struct()
+      assert %User{} = user
+      assert String.starts_with?(user.username, "admin-")
+    end
+
+    test "variant caller params are passed through" do
+      user = ChildFactory.build_guest_user_struct(%{first_name: "Custom"})
+      assert user.username == "guest"
+      assert user.first_name == "Custom"
+    end
+
+    test "variant insert delegates to base factory insert pipeline" do
+      user = ChildFactory.insert_admin_user!()
+      assert %User{} = user
+      assert user.id != nil
+      assert String.starts_with?(user.username, "admin-")
+    end
+
+    test "variant list functions work" do
+      users = ChildFactory.build_admin_user_struct_list(3)
+      assert length(users) == 3
+      assert Enum.all?(users, &match?(%User{}, &1))
+    end
+
+    test "variant without base factory raises at compile time" do
+      assert_raise ArgumentError,
+                   ~r/base factory :nonexistent not found/,
+                   fn ->
+                     Code.compile_string("""
+                     defmodule TestVariantNoBase do
+                       use FactoryMan
+
+                       defvariant broken(params \\\\ %{}), for: :nonexistent do
+                         params
+                       end
+                     end
+                     """)
+                   end
+    end
+  end
+
   # ── Error handling ───────────────────────────────────────────────
 
   describe "error handling" do
