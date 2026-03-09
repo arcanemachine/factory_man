@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-08
+
+### Added
+
+- `params?: false` option for `deffactory`. When set, the factory body returns a struct directly
+  instead of a params map. No `build_*_params` functions are generated. Useful for complex
+  factories that need full control over struct construction (e.g. resolving associations from
+  other factories, conditional logic). Can be set at module level or factory level.
+- Compile-time validation: `params?: false` without `struct:` raises `ArgumentError`
+
+### Fixed
+
+- Flaky "circular sequence cycles through values" test that depended on test ordering. Added
+  `FactoryMan.Sequence.reset()` to ensure predictable starting position.
+
 ## [0.1.1] - 2026-03-07
 
 ### Fixed

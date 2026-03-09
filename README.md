@@ -22,7 +22,7 @@ Add FactoryMan to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:factory_man, "0.1.1"}
+    {:factory_man, "0.2.0"}
   ]
 end
 ```
@@ -197,6 +197,31 @@ A common mistake when building factories is inserting records into the database 
 struct would suffice. If the only reason to insert is to get an ID for a foreign key, consider
 whether the test actually needs that constraint enforced. If not, a struct with a generated ID is
 simpler and faster.
+
+## Direct Struct Factories (`params?: false`)
+
+For complex factories that need full control over struct construction, set `params?: false`.
+The factory body returns a struct directly, and no `build_*_params` functions are generated:
+
+```elixir
+deffactory invoice(params \\ %{}), struct: Invoice, params?: false do
+  customer =
+    case params[:customer] do
+      %Customer{} = customer -> customer
+      _ -> MyApp.Factory.Accounts.insert_customer!()
+    end
+
+  %Invoice{
+    customer: customer,
+    total: Map.get(params, :total, Enum.random(100..10_000))
+  }
+end
+```
+
+This generates `build_invoice_struct/0,1`, `insert_invoice!/0,1,2`, and list variants, but
+**not** `build_invoice_params`.
+
+`params?: false` can also be set at the module level via `use FactoryMan, params?: false`.
 
 ## Documentation
 

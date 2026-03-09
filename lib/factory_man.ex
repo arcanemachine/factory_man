@@ -316,6 +316,9 @@ defmodule FactoryMan do
   - `:insert?` - Set to `false` to prevent accidental database insertion (e.g. for read-only test
   data)
   - `:build_struct?` - Set to `false` when you only need raw params (e.g. for API request bodies)
+  - `:params?` - Set to `false` to skip params builder generation. The factory body returns a
+  struct directly instead of a params map. Requires `:struct` to be set. Useful for complex
+  factories that need full control over struct construction
   - `:hooks` - Additional hooks merged with module-level hooks
 
   ## Factory Inheritance
@@ -620,6 +623,35 @@ defmodule FactoryMan do
 
   Embedded schemas generate `build_*_params` and `build_*_struct` functions only (as well as
   the matching `*_list` functions), but do not generate any `insert_*` functions.
+
+  ## Direct Struct Factories (`params?: false`)
+
+  For complex factories that need full control over struct construction, set `params?: false`.
+  The factory body returns a struct directly instead of a params map, and no `build_*_params`
+  functions are generated:
+
+  ```elixir
+  deffactory invoice(params \\ %{}), struct: Invoice, params?: false do
+    customer =
+      case params[:customer] do
+        %Customer{} = customer -> customer
+        _ -> MyApp.Factory.Accounts.insert_customer!()
+      end
+
+    %Invoice{
+      customer: customer,
+      total: Map.get(params, :total, Enum.random(100..10_000))
+    }
+  end
+  ```
+
+  This generates `build_invoice_struct/0,1`, `insert_invoice!/0,1,2`, and list variants, but
+  **not** `build_invoice_params`. The `after_build_struct`, `before_insert`, and `after_insert`
+  hooks still run. The `before_build_params`, `after_build_params`, and `before_build_struct`
+  hooks are skipped since there is no params-to-struct conversion stage.
+
+  `params?: false` can also be set at the module level with `use FactoryMan, params?: false`,
+  then overridden per-factory with `params?: true` if needed.
 
   ## Debugging
 
