@@ -153,6 +153,16 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     FactoryMan.sequence(:value_email, fn n -> "user#{n}@#{domain}" end)
   end
 
+  deffactory lazy_options(overrides \\ []) do
+    base = [
+      timeout: 5000,
+      created_at: fn -> DateTime.utc_now() end,
+      label: fn kw -> "timeout-#{kw[:timeout]}" end
+    ]
+
+    Keyword.merge(base, overrides)
+  end
+
   # ── Parameter patterns (macro behavior) ──────────────────────────
 
   # Simple variable without default — params are required

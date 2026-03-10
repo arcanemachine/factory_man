@@ -1039,6 +1039,14 @@ defmodule FactoryMan do
     do_evaluate_lazy_attributes(attrs, attrs)
   end
 
+  def evaluate_lazy_attributes(attrs) when is_list(attrs) do
+    if Keyword.keyword?(attrs) do
+      do_evaluate_lazy_keyword(attrs, attrs)
+    else
+      attrs
+    end
+  end
+
   def evaluate_lazy_attributes(value), do: value
 
   defp do_evaluate_lazy_attributes(attrs, parent_factory) do
@@ -1049,6 +1057,14 @@ defmodule FactoryMan do
       {_, _} = tuple -> tuple
     end)
     |> Enum.into(%{})
+  end
+
+  defp do_evaluate_lazy_keyword(attrs, parent_factory) do
+    Enum.map(attrs, fn
+      {k, v} when is_function(v, 1) -> {k, v.(parent_factory)}
+      {k, v} when is_function(v) -> {k, v.()}
+      {_, _} = tuple -> tuple
+    end)
   end
 
   @doc """

@@ -709,6 +709,28 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     test "list builder with count 0 returns empty list" do
       assert ChildFactory.build_greeting_params_list(0) == []
     end
+
+    test "keyword list with lazy 0-arity attrs" do
+      result = ChildFactory.build_lazy_options_params()
+
+      assert result[:timeout] == 5000
+      assert %DateTime{} = result[:created_at]
+    end
+
+    test "keyword list with lazy 1-arity attrs" do
+      result = ChildFactory.build_lazy_options_params()
+
+      assert result[:label] == "timeout-5000"
+    end
+
+    test "keyword list lazy attrs with overrides" do
+      result = ChildFactory.build_lazy_options_params(timeout: 9000)
+
+      assert result[:timeout] == 9000
+      # 1-arity receives the keyword list before lazy eval, so sees the raw fn for :label
+      # but :timeout is already resolved since it was overridden with a plain value
+      assert result[:label] == "timeout-9000"
+    end
   end
 
   # ── deffactory/2,3 duplicate option warning ────────────────────
