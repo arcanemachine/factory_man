@@ -198,13 +198,13 @@ struct would suffice. If the only reason to insert is to get an ID for a foreign
 whether the test actually needs that constraint enforced. If not, a struct with a generated ID is
 simpler and faster.
 
-## Direct Struct Factories (`params?: false`)
+## Direct Struct Factories (`build_params?: false`)
 
-For complex factories that need full control over struct construction, set `params?: false`.
+For complex factories that need full control over struct construction, set `build_params?: false`.
 The factory body returns a struct directly, and no `build_*_params` functions are generated:
 
 ```elixir
-deffactory invoice(params \\ %{}), struct: Invoice, params?: false do
+deffactory invoice(params \\ %{}), struct: Invoice, build_params?: false do
   customer =
     case params[:customer] do
       %Customer{} = customer -> customer
@@ -221,7 +221,7 @@ end
 This generates `build_invoice_struct/0,1`, `insert_invoice!/0,1,2`, and list variants, but
 **not** `build_invoice_params`.
 
-`params?: false` can also be set at the module level via `use FactoryMan, params?: false`.
+`build_params?: false` can also be set at the module level via `use FactoryMan, build_params?: false`.
 
 ## Variant Factories (`defvariant`)
 

@@ -356,7 +356,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       refute function_exported?(ChildFactory, :insert_non_insertable!, 0)
     end
 
-    test "params?: false skips params builder generation" do
+    test "build_params?: false skips params builder generation" do
       assert function_exported?(ChildFactory, :build_raw_user_struct, 0)
       assert function_exported?(ChildFactory, :build_raw_user_struct, 1)
       refute function_exported?(ChildFactory, :build_raw_user_params, 0)
@@ -365,26 +365,26 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       refute function_exported?(ChildFactory, :build_raw_user_params_list, 2)
     end
 
-    test "params?: false factory body returns struct directly" do
+    test "build_params?: false factory body returns struct directly" do
       user = ChildFactory.build_raw_user_struct()
       assert %User{} = user
       assert String.starts_with?(user.username, "raw-user-")
     end
 
-    test "params?: false factory accepts caller overrides" do
+    test "build_params?: false factory accepts caller overrides" do
       user = ChildFactory.build_raw_user_struct(%{username: "custom"})
       assert user.username == "custom"
     end
 
-    test "params?: false without struct: raises at compile time" do
+    test "build_params?: false without struct: raises at compile time" do
       assert_raise ArgumentError,
-                   ~r/params\?: false requires the struct: option/,
+                   ~r/build_params\?: false requires the struct: option/,
                    fn ->
                      Code.compile_string("""
                      defmodule TestParamsFalseNoStruct do
                        use FactoryMan
 
-                       deffactory broken(params \\\\ %{}), params?: false do
+                       deffactory broken(params \\\\ %{}), build_params?: false do
                          %{}
                        end
                      end
@@ -588,7 +588,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
           end
 
           defmodule NewOptChild do
-            use FactoryMan, extends: NewOptParent, params?: false
+            use FactoryMan, extends: NewOptParent, build_params?: false
           end
           """)
         end)
@@ -652,9 +652,9 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
         capture_log(fn ->
           Code.compile_string("""
           defmodule FactDupMod do
-            use FactoryMan, params?: false
+            use FactoryMan, build_params?: false
 
-            deffactory thing(params \\\\ %{}), struct: SomeStruct, params?: false do
+            deffactory thing(params \\\\ %{}), struct: SomeStruct, build_params?: false do
               params
             end
           end
@@ -663,7 +663,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
       assert log =~ "FactoryMan: duplicate option"
       assert log =~ "factory :thing"
-      assert log =~ ":params?"
+      assert log =~ ":build_params?"
     end
 
     test "does not warn when deffactory overrides with a different value" do
@@ -671,9 +671,9 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
         capture_log(fn ->
           Code.compile_string("""
           defmodule FactDiffMod do
-            use FactoryMan, params?: false
+            use FactoryMan, build_params?: false
 
-            deffactory thing(params \\\\ %{}), struct: SomeStruct, params?: true do
+            deffactory thing(params \\\\ %{}), struct: SomeStruct, build_params?: true do
               params
             end
           end
@@ -688,11 +688,11 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
         capture_log(fn ->
           Code.compile_string("""
           defmodule FactSuppMod do
-            use FactoryMan, params?: false
+            use FactoryMan, build_params?: false
 
             deffactory thing(params \\\\ %{}),
               struct: SomeStruct,
-              params?: false,
+              build_params?: false,
               suppress_duplicate_option_warning: true do
               params
             end

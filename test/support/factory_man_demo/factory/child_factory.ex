@@ -103,7 +103,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
 
   # ── Factory options ──────────────────────────────────────────────
 
-  deffactory raw_user(params \\ %{}), struct: User, params?: false do
+  deffactory raw_user(params \\ %{}), struct: User, build_params?: false do
     username = Map.get(params, :username, "raw-user-#{System.os_time()}")
     %User{username: username}
   end

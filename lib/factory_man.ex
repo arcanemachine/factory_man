@@ -318,7 +318,7 @@ defmodule FactoryMan do
   - `:insert?` - Set to `false` to prevent accidental database insertion (e.g. for read-only test
   data)
   - `:build_struct?` - Set to `false` when you only need raw params (e.g. for API request bodies)
-  - `:params?` (boolean, defaut: `true`) - Set to `false` to skip params builder generation. The
+  - `:build_params?` (boolean, defaut: `true`) - Set to `false` to skip params builder generation. The
   factory body returns a struct directly instead of a params map. Requires `:struct` to be set.
   Useful for complex factories that need full control over struct construction
   - `:hooks` - Additional hooks merged with module-level hooks
@@ -628,14 +628,14 @@ defmodule FactoryMan do
   Embedded schemas generate `build_*_params` and `build_*_struct` functions only (as well as
   the matching `*_list` functions), but do not generate any `insert_*` functions.
 
-  ## Direct Struct Factories (`params?: false`)
+  ## Direct Struct Factories (`build_params?: false`)
 
-  For complex factories that need full control over struct construction, set `params?: false`.
+  For complex factories that need full control over struct construction, set `build_params?: false`.
   The factory body returns a struct directly instead of a params map, and no `build_*_params`
   functions are generated:
 
   ```elixir
-  deffactory invoice(params \\ %{}), struct: Invoice, params?: false do
+  deffactory invoice(params \\ %{}), struct: Invoice, build_params?: false do
     customer =
       case params[:customer] do
         %Customer{} = customer -> customer
@@ -654,8 +654,8 @@ defmodule FactoryMan do
   hooks still run. The `before_build_params`, `after_build_params`, and `before_build_struct`
   hooks are skipped since there is no params-to-struct conversion stage.
 
-  `params?: false` can also be set at the module level with `use FactoryMan, params?: false`,
-  then overridden per-factory with `params?: true` if needed.
+  `build_params?: false` can also be set at the module level with `use FactoryMan, build_params?: false`,
+  then overridden per-factory with `build_params?: true` if needed.
 
   ## Variant Factories (`defvariant`)
 
@@ -868,15 +868,15 @@ defmodule FactoryMan do
       # Extract hooks - used many times throughout
       hooks = merged_hooks
 
-      # Validate: params?: false requires struct: option
-      if merged_opts[:params?] == false and is_nil(merged_opts[:struct]) do
+      # Validate: build_params?: false requires struct: option
+      if merged_opts[:build_params?] == false and is_nil(merged_opts[:struct]) do
         raise ArgumentError,
-              "deffactory #{factory_name}: params?: false requires the struct: option, " <>
+              "deffactory #{factory_name}: build_params?: false requires the struct: option, " <>
                 "otherwise no functions would be generated"
       end
 
-      # Generate params builder functions (skipped when params?: false)
-      if merged_opts[:params?] != false do
+      # Generate params builder functions (skipped when build_params?: false)
+      if merged_opts[:build_params?] != false do
         # Head declaration (simple variable with default if present)
         def unquote({:"build_#{factory_name}_params", [], [head_ast]})
 
@@ -907,7 +907,7 @@ defmodule FactoryMan do
       end
 
       if merged_opts[:struct] != nil and merged_opts[:build_struct?] != false do
-        if merged_opts[:params?] != false do
+        if merged_opts[:build_params?] != false do
           # Generate struct builder function (standard: delegates to params builder)
           # Head declaration (simple variable with default if present)
           def unquote({:"build_#{factory_name}_struct", [], [head_ast]})
@@ -922,7 +922,7 @@ defmodule FactoryMan do
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
           end
         else
-          # Generate struct builder function (params?: false: body returns struct directly)
+          # Generate struct builder function (build_params?: false: body returns struct directly)
           # Head declaration (simple variable with default if present)
           def unquote({:"build_#{factory_name}_struct", [], [head_ast]})
 
@@ -1100,7 +1100,7 @@ defmodule FactoryMan do
       full_name = as_name || :"#{variant_name}_#{base_factory_name}"
 
       # Generate params builder variant (if base factory has params)
-      if base_opts[:params?] != false do
+      if base_opts[:build_params?] != false do
         def unquote({:"build_#{full_name}_params", [], [head_ast]})
 
         def unquote({:"build_#{full_name}_params", [], [arg_ast_no_default]}) do
