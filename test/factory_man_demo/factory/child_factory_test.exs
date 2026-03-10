@@ -537,4 +537,170 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
                    end
     end
   end
+
+  # ── __using__/1 duplicate option warning ───────────────────────
+
+  describe "__using__/1 duplicate option warning" do
+    import ExUnit.CaptureLog
+
+    test "warns when child module specifies the same option as parent" do
+      log =
+        capture_log(fn ->
+          Code.compile_string("""
+          defmodule DupModParent do
+            use FactoryMan, repo: SomeRepo
+          end
+
+          defmodule DupModChild do
+            use FactoryMan, extends: DupModParent, repo: SomeRepo
+          end
+          """)
+        end)
+
+      assert log =~ "FactoryMan: duplicate option"
+      assert log =~ ":repo"
+      assert log =~ "suppress_duplicate_option_warning"
+    end
+
+    test "does not warn when child overrides with a different value" do
+      log =
+        capture_log(fn ->
+          Code.compile_string("""
+          defmodule DiffValParent do
+            use FactoryMan, repo: RepoA
+          end
+
+          defmodule DiffValChild do
+            use FactoryMan, extends: DiffValParent, repo: RepoB
+          end
+          """)
+        end)
+
+      refute log =~ "FactoryMan: duplicate option"
+    end
+
+    test "does not warn when child specifies a new option not in parent" do
+      log =
+        capture_log(fn ->
+          Code.compile_string("""
+          defmodule NewOptParent do
+            use FactoryMan, repo: SomeRepo
+          end
+
+          defmodule NewOptChild do
+            use FactoryMan, extends: NewOptParent, params?: false
+          end
+          """)
+        end)
+
+      refute log =~ "FactoryMan: duplicate option"
+    end
+
+    test "suppresses warning with suppress_duplicate_option_warning: true" do
+      log =
+        capture_log(fn ->
+          Code.compile_string("""
+          defmodule SuppParent do
+            use FactoryMan, repo: SomeRepo
+          end
+
+          defmodule SuppChild do
+            use FactoryMan,
+              extends: SuppParent,
+              repo: SomeRepo,
+              suppress_duplicate_option_warning: true
+          end
+          """)
+        end)
+
+      refute log =~ "FactoryMan: duplicate option"
+    end
+
+    test "suppress_duplicate_option_warning does not propagate to grandchildren" do
+      log =
+        capture_log(fn ->
+          Code.compile_string("""
+          defmodule PropParent do
+            use FactoryMan, repo: SomeRepo
+          end
+
+          defmodule PropChild do
+            use FactoryMan,
+              extends: PropParent,
+              repo: SomeRepo,
+              suppress_duplicate_option_warning: true
+          end
+
+          defmodule PropGrandchild do
+            use FactoryMan, extends: PropChild, repo: SomeRepo
+          end
+          """)
+        end)
+
+      assert log =~ "FactoryMan: duplicate option"
+      assert log =~ "PropGrandchild"
+    end
+  end
+
+  # ── deffactory/2,3 duplicate option warning ────────────────────
+
+  describe "deffactory/2,3 duplicate option warning" do
+    import ExUnit.CaptureLog
+
+    test "warns when deffactory specifies the same option as its module" do
+      log =
+        capture_log(fn ->
+          Code.compile_string("""
+          defmodule FactDupMod do
+            use FactoryMan, params?: false
+
+            deffactory thing(params \\\\ %{}), struct: SomeStruct, params?: false do
+              params
+            end
+          end
+          """)
+        end)
+
+      assert log =~ "FactoryMan: duplicate option"
+      assert log =~ "factory :thing"
+      assert log =~ ":params?"
+    end
+
+    test "does not warn when deffactory overrides with a different value" do
+      log =
+        capture_log(fn ->
+          Code.compile_string("""
+          defmodule FactDiffMod do
+            use FactoryMan, params?: false
+
+            deffactory thing(params \\\\ %{}), struct: SomeStruct, params?: true do
+              params
+            end
+          end
+          """)
+        end)
+
+      refute log =~ "FactoryMan: duplicate option"
+    end
+
+    test "suppresses warning at factory level" do
+      log =
+        capture_log(fn ->
+          Code.compile_string("""
+          defmodule FactSuppMod do
+            use FactoryMan, params?: false
+
+            deffactory thing(params \\\\ %{}),
+              struct: SomeStruct,
+              params?: false,
+              suppress_duplicate_option_warning: true do
+              params
+            end
+          end
+          """)
+        end)
+
+      refute log =~ "FactoryMan: duplicate option"
+    end
+  end
 end

@@ -310,6 +310,8 @@ defmodule FactoryMan do
   - `:repo` - Ecto repo for database operations (required for insert functions)
   - `:extends` - Parent factory module to inherit common configuration
   - `:hooks` - Hooks applied to all factories in the module
+  - `:suppress_duplicate_option_warning` - Set to `true` to suppress warnings when this module
+  specifies an option that is already defined by the parent with the same value
 
   **Factory-level options** (set with `deffactory`):
   - `:struct` - Ecto schema struct to build (generates struct and insert functions)
@@ -320,6 +322,8 @@ defmodule FactoryMan do
   factory body returns a struct directly instead of a params map. Requires `:struct` to be set.
   Useful for complex factories that need full control over struct construction
   - `:hooks` - Additional hooks merged with module-level hooks
+  - `:suppress_duplicate_option_warning` - Set to `true` to suppress warnings when this factory
+  specifies an option that is already defined by the module with the same value
 
   ## Factory Inheritance
 
@@ -704,6 +708,15 @@ defmodule FactoryMan do
   This generates `build_mod_struct/0,1`, `insert_mod!/0,1,2`, etc.
   — instead of the default `build_moderator_user_struct`.
 
+  ## Duplicate Option Warnings
+
+  If a child factory module specifies an option that is already defined by its parent with the
+  same value, FactoryMan will emit a compile-time warning. This helps catch redundant options
+  that were likely copy-pasted from the parent.
+
+  To suppress the warning for a specific module or factory, add
+  `suppress_duplicate_option_warning: true` to the options.
+
   ## Debugging
 
   FactoryMan generates debug functions showing configured options:
@@ -716,6 +729,11 @@ defmodule FactoryMan do
   [repo: MyApp.Repo, struct: User]
   ```
   """
+
+  require Logger
+
+  # Keys that should not trigger duplicate option warnings
+  @duplicate_warning_skip_keys [:extends, :suppress_duplicate_option_warning]
 
   defmacro __using__(opts \\ []) do
     quote do
@@ -734,12 +752,23 @@ defmodule FactoryMan do
             # Extend base factory opts
             parent_opts = extends.__info__(:attributes)[:parent_factory_opts] || []
 
+            FactoryMan._warn_duplicate_options(
+              parent_opts,
+              unquote(opts),
+              "module #{inspect(__MODULE__)}"
+            )
+
             Keyword.merge(parent_opts, unquote(opts))
         end
 
       # Put factory module options into a module attribute that can be read by the child factories
       Module.register_attribute(__MODULE__, :parent_factory_opts, persist: true)
-      Module.put_attribute(__MODULE__, :parent_factory_opts, parent_factory_opts)
+
+      Module.put_attribute(
+        __MODULE__,
+        :parent_factory_opts,
+        parent_factory_opts |> Keyword.delete(:suppress_duplicate_option_warning)
+      )
 
       @doc """
       A debug helper function that shows all the options for the `#{inspect(__MODULE__)}` factory
@@ -763,6 +792,8 @@ defmodule FactoryMan do
     repo is configured and struct is insertable)
   - `:build_struct?` - Set to `false` to skip generating struct builder functions (default: `true`)
   - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
+  - `:suppress_duplicate_option_warning` - Set to `true` to suppress warnings when this
+    factory specifies an option already defined by the module with the same value
 
   ## Generated Functions
 
@@ -818,6 +849,12 @@ defmodule FactoryMan do
             block: Macro.escape(block, unquote: true)
           ] do
       parent_factory_opts = Module.get_attribute(__MODULE__, :parent_factory_opts)
+
+      FactoryMan._warn_duplicate_options(
+        parent_factory_opts,
+        opts,
+        "factory :#{factory_name} in #{inspect(__MODULE__)}"
+      )
 
       parent_factory_hooks = Keyword.get(parent_factory_opts, :hooks, [])
       child_factory_hooks = Keyword.get(opts, :hooks, [])
@@ -1397,6 +1434,32 @@ defmodule FactoryMan do
       &YourProject.Factories.Users.user_after_insert_handler/1
   """
   def get_hook_handler(hooks, hook), do: hooks[hook] || (&FactoryMan.fallback_hook_handler/1)
+
+  @doc """
+  Warn at compile time if child opts contain options that are already defined by the parent with
+  the same value.
+
+  This is a FactoryMan internal function — called from macro-generated code. Use the underscore
+  prefix convention to signal that it is not part of the public API.
+  """
+  def _warn_duplicate_options(parent_opts, child_opts, context) do
+    if Keyword.get(child_opts, :suppress_duplicate_option_warning) != true do
+      child_opts
+      |> Keyword.drop(@duplicate_warning_skip_keys)
+      |> Enum.each(fn {key, value} ->
+        if Keyword.has_key?(parent_opts, key) and Keyword.get(parent_opts, key) == value do
+          Logger.warning("""
+          FactoryMan: duplicate option in #{context}
+
+          The option `#{inspect(key)}: #{inspect(value)}` is already defined by the parent \
+          factory with the same value. This is redundant and can be removed.
+
+          To suppress this warning, add `suppress_duplicate_option_warning: true` to the options.\
+          """)
+        end
+      end)
+    end
+  end
 
   @doc """
   Generates a sequence of strings.
