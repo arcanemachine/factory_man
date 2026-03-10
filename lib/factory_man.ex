@@ -23,30 +23,30 @@ defmodule FactoryMan do
 
   For a factory named `:user` with `struct: User`:
 
-  | Function | Returns | Purpose |
-  | --- | --- | --- |
-  | `build_user_params/0,1` | `%{}` | Plain map (for changesets, APIs) |
-  | `build_user_struct/0,1` | `%User{}` | Struct in memory (not persisted) |
-  | `insert_user!/0,1` | `%User{}` | Inserted into database |
-  | `params_for_user/0,1` | `%{}` | Stripped params (no Ecto metadata) |
-  | `string_params_for_user/0,1` | `%{"" => ...}` | Stripped params with string keys |
-  | `build_user_params_list/1,2` | `[%{}, ...]` | List of params maps |
-  | `build_user_struct_list/1,2` | `[%User{}, ...]` | List of structs |
-  | `insert_user_list!/1,2` | `[%User{}, ...]` | List of inserted records |
+  | Function                     | Returns          | Purpose                            |
+  | ---------------------------- | ---------------- | ---------------------------------- |
+  | `build_user_params/0,1`      | `%{}`            | Plain map (for changesets, APIs)   |
+  | `build_user_struct/0,1`      | `%User{}`        | Struct in memory (not persisted)   |
+  | `insert_user!/0,1`           | `%User{}`        | Inserted into database             |
+  | `params_for_user/0,1`        | `%{}`            | Stripped params (no Ecto metadata) |
+  | `string_params_for_user/0,1` | `%{"" => ...}`   | Stripped params with string keys   |
+  | `build_user_params_list/1,2` | `[%{}, ...]`     | List of params maps                |
+  | `build_user_struct_list/1,2` | `[%User{}, ...]` | List of structs                    |
+  | `insert_user_list!/1,2`      | `[%User{}, ...]` | List of inserted records           |
 
   All functions accept optional params for customization. Insert functions also accept repo
   options. Each item in a list is evaluated independently (unique timestamps, sequences, etc.).
 
   What gets generated depends on the options:
 
-  | Options | Params | Struct | Insert |
-  | --- | --- | --- | --- |
-  | `struct: User` (default) | Yes | Yes | Yes |
-  | No `struct:` option | Yes | No | No |
-  | `insert?: false` | Yes | Yes | No |
-  | `build_struct?: false` | Yes | No | No |
-  | `build_params?: false` | No | Yes | Yes |
-  | Embedded schema | Yes | Yes | No |
+  | Options                  | Params | Struct | Insert |
+  | ------------------------ | ------ | ------ | ------ |
+  | `struct: User` (default) | Yes    | Yes    | Yes    |
+  | No `struct:` option      | Yes    | No     | No     |
+  | `insert?: false`         | Yes    | Yes    | No     |
+  | `build_struct?: false`   | Yes    | No     | No     |
+  | `build_params?: false`   | No     | Yes    | Yes    |
+  | Embedded schema          | Yes    | Yes    | No     |
 
   ## Defining Factories
 
@@ -71,16 +71,30 @@ defmodule FactoryMan do
   end
   ```
 
-  **Params-only factories** — omit `struct:` to only generate `build_*_params` functions:
+  ### Struct vs. Non-Struct Factories
+
+  The `struct:` option controls both what functions are generated and how they're named:
 
   ```elixir
+  # Struct factory — generates build_user_params, build_user_struct, insert_user!, etc.
+  deffactory user(params \\\\ %{}), struct: User do
+    base_params = %{username: "user-\#{System.os_time()}"}
+    Map.merge(base_params, params)
+  end
+
+  # Non-struct factory — generates build_api_payload and build_api_payload_list only
   deffactory api_payload(params \\\\ %{}) do
     %{action: "create", data: params}
   end
   ```
 
-  **Arbitrary return values** — factory bodies can return any value, not just maps. This is
-  useful for generating test data that isn't map-shaped (strings, keyword lists, tuples, etc.):
+  | Factory type                  | Generated functions                      |
+  | ----------------------------- | ---------------------------------------- |
+  | `struct: User` (`:user`)      | `build_user_params`, `build_user_struct`, `insert_user!`, etc. |
+  | No `struct:` (`:api_payload`) | `build_api_payload`, `build_api_payload_list` |
+
+  Non-struct factories use simplified names (`build_*` instead of `build_*_params`) because
+  they can return any value — maps, strings, keyword lists, tuples, nil, etc.:
 
   ```elixir
   deffactory greeting(name \\\\ "world") do
@@ -132,12 +146,14 @@ defmodule FactoryMan do
   Options cascade: parent module -> child module -> individual factory.
 
   **Module-level** (set with `use FactoryMan`):
+
   - `:repo` — Ecto repo for database operations
   - `:extends` — Parent factory module to inherit configuration from
   - `:hooks` — Hooks applied to all factories in the module
   - `:suppress_duplicate_option_warning` — Suppress warnings for redundant options
 
   **Factory-level** (set with `deffactory`):
+
   - `:struct` — Ecto schema module (enables struct and insert functions)
   - `:insert?` — Set to `false` to skip insert functions
   - `:build_struct?` — Set to `false` to skip struct builders
@@ -227,14 +243,14 @@ defmodule FactoryMan do
 
   ### Hook Reference
 
-  | Hook                   | Receives        | Returns         | When to Use                                      |
-  | ---------------------- | --------------- | --------------- | ------------------------------------------------ |
-  | `:before_build_params` | params (map)    | params (map)    | Transform or inject params before the factory body runs |
-  | `:after_build_params`  | params (map)    | params (map)    | Modify params after the factory body (e.g. add computed fields) |
-  | `:before_build_struct` | params (map)    | params (map)    | Last chance to modify params before `struct!()` is called |
-  | `:after_build_struct`  | struct          | struct          | Transform the struct after creation (e.g. set virtual fields) |
-  | `:before_insert`       | struct          | struct          | Modify struct just before database insertion |
-  | `:after_insert`        | struct          | struct          | Post-process after insertion (e.g. reset associations) |
+  | Hook                   | Receives     | Returns      | When to Use                                                     |
+  | ---------------------- | ------------ | ------------ | --------------------------------------------------------------- |
+  | `:before_build_params` | params (map) | params (map) | Transform or inject params before the factory body runs         |
+  | `:after_build_params`  | params (map) | params (map) | Modify params after the factory body (e.g. add computed fields) |
+  | `:before_build_struct` | params (map) | params (map) | Last chance to modify params before `struct!()` is called       |
+  | `:after_build_struct`  | struct       | struct       | Transform the struct after creation (e.g. set virtual fields)   |
+  | `:before_insert`       | struct       | struct       | Modify struct just before database insertion                    |
+  | `:after_insert`        | struct       | struct       | Post-process after insertion (e.g. reset associations)          |
 
   ### Hook Precedence
 
@@ -472,16 +488,21 @@ defmodule FactoryMan do
 
   ## Generated Functions
 
-  For a factory named `user` which builds a struct, the following functions are generated:
+  For a factory named `user` with `struct: User`, the following functions are generated:
 
   - `build_user_params/1` - Returns plain params
-  - `build_user_struct/1` - Returns an unsaved struct (when `:struct` is set)
-  - `insert_user!/1` - Inserts into the database (when `:struct` is set and repo is configured)
-  - `params_for_user/1` - Stripped params map (when `:struct` is an Ecto schema)
-  - `string_params_for_user/1` - Stripped params with string keys (when `:struct` is an Ecto schema)
+  - `build_user_struct/1` - Returns an unsaved struct
+  - `insert_user!/1` - Inserts into the database (when repo is configured)
+  - `params_for_user/1` - Stripped params map (when struct is an Ecto schema)
+  - `string_params_for_user/1` - Stripped params with string keys (when struct is an Ecto schema)
   - `build_user_params_list/2` - Builds multiple items
-  - `build_user_struct_list/2` - Builds multiple structs (when `:struct` is set)
-  - `insert_user_list!/2` - Inserts multiple items (when `:struct` is set and repo is configured)
+  - `build_user_struct_list/2` - Builds multiple structs
+  - `insert_user_list!/2` - Inserts multiple items (when repo is configured)
+
+  For a factory named `greeting` without `struct:`, simplified names are used:
+
+  - `build_greeting/1` - Returns the factory's value
+  - `build_greeting_list/2` - Builds multiple items
 
   ## Examples
 
@@ -555,12 +576,18 @@ defmodule FactoryMan do
       end
 
       # Generate params builder functions (skipped when build_params?: false)
+      # Non-struct factories use `build_*` / `build_*_list` (no suffix).
+      # Struct factories use `build_*_params` / `build_*_params_list`.
       if merged_opts[:build_params?] != false do
+        params_suffix = if merged_opts[:struct], do: "_params", else: ""
+        build_fn = :"build_#{factory_name}#{params_suffix}"
+        build_list_fn = :"build_#{factory_name}#{params_suffix}_list"
+
         # Head declaration (simple variable with default if present)
-        def unquote({:"build_#{factory_name}_params", [], [head_ast]})
+        def unquote({build_fn, [], [head_ast]})
 
         # Implementation (with pattern matching if needed, no default)
-        def unquote({:"build_#{factory_name}_params", [], [arg_ast_no_default]}) do
+        def unquote({build_fn, [], [arg_ast_no_default]}) do
           unquote(user_var) =
             FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(unquote(user_var))
 
@@ -569,19 +596,19 @@ defmodule FactoryMan do
           |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
         end
 
-        # Generate params list builder function
+        # Generate list builder function
         # Only generate convenience function if argument has a default value
         if has_default do
-          def unquote(:"build_#{factory_name}_params_list")(count)
+          def unquote(build_list_fn)(count)
               when is_integer(count) and count >= 0 do
-            Stream.repeatedly(fn -> unquote(:"build_#{factory_name}_params")() end)
+            Stream.repeatedly(fn -> unquote(build_fn)() end)
             |> Enum.take(count)
           end
         end
 
-        def unquote(:"build_#{factory_name}_params_list")(count, params)
+        def unquote(build_list_fn)(count, params)
             when is_integer(count) and count >= 0 do
-          Stream.repeatedly(fn -> unquote(:"build_#{factory_name}_params")(params) end)
+          Stream.repeatedly(fn -> unquote(build_fn)(params) end)
           |> Enum.take(count)
         end
       end
@@ -816,25 +843,31 @@ defmodule FactoryMan do
       full_name = as_name || :"#{variant_name}_#{base_factory_name}"
 
       # Generate params builder variant (if base factory has params)
+      # Non-struct factories use `build_*` / `build_*_list` (no suffix).
       if base_opts[:build_params?] != false do
-        def unquote({:"build_#{full_name}_params", [], [head_ast]})
+        params_suffix = if base_opts[:struct], do: "_params", else: ""
+        build_fn = :"build_#{full_name}#{params_suffix}"
+        build_list_fn = :"build_#{full_name}#{params_suffix}_list"
+        base_build_fn = :"build_#{base_factory_name}#{params_suffix}"
 
-        def unquote({:"build_#{full_name}_params", [], [arg_ast_no_default]}) do
+        def unquote({build_fn, [], [head_ast]})
+
+        def unquote({build_fn, [], [arg_ast_no_default]}) do
           unquote(block)
-          |> unquote(:"build_#{base_factory_name}_params")()
+          |> unquote(base_build_fn)()
         end
 
         if not has_pattern_match do
-          def unquote(:"build_#{full_name}_params_list")(count)
+          def unquote(build_list_fn)(count)
               when is_integer(count) and count >= 0 do
-            unquote(:"build_#{full_name}_params_list")(count, %{})
+            unquote(build_list_fn)(count, %{})
           end
         end
 
-        def unquote(:"build_#{full_name}_params_list")(count, params)
+        def unquote(build_list_fn)(count, params)
             when is_integer(count) and count >= 0 and is_map(params) do
           Stream.repeatedly(fn ->
-            unquote(:"build_#{full_name}_params")(params)
+            unquote(build_fn)(params)
           end)
           |> Enum.take(count)
         end

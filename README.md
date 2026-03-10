@@ -194,27 +194,27 @@ end
 
 For a factory named `:user` with `struct: User`:
 
-| Function | Returns | Purpose |
-| --- | --- | --- |
-| `build_user_params/0,1` | `%{}` | Plain map (for changesets, APIs) |
-| `build_user_struct/0,1` | `%User{}` | Struct in memory (not persisted) |
-| `insert_user!/0,1` | `%User{}` | Inserted into database |
-| `params_for_user/0,1` | `%{}` | Stripped params (no Ecto metadata) |
-| `string_params_for_user/0,1` | `%{"" => ...}` | Stripped params with string keys |
-| `build_user_params_list/1,2` | `[%{}, ...]` | List of params maps |
-| `build_user_struct_list/1,2` | `[%User{}, ...]` | List of structs |
-| `insert_user_list!/1,2` | `[%User{}, ...]` | List of inserted records |
+| Function                     | Returns          | Purpose                            |
+| ---------------------------- | ---------------- | ---------------------------------- |
+| `build_user_params/0,1`      | `%{}`            | Plain map (for changesets, APIs)   |
+| `build_user_struct/0,1`      | `%User{}`        | Struct in memory (not persisted)   |
+| `insert_user!/0,1`           | `%User{}`        | Inserted into database             |
+| `params_for_user/0,1`        | `%{}`            | Stripped params (no Ecto metadata) |
+| `string_params_for_user/0,1` | `%{"" => ...}`   | Stripped params with string keys   |
+| `build_user_params_list/1,2` | `[%{}, ...]`     | List of params maps                |
+| `build_user_struct_list/1,2` | `[%User{}, ...]` | List of structs                    |
+| `insert_user_list!/1,2`      | `[%User{}, ...]` | List of inserted records           |
 
 What gets generated depends on the options:
 
-| Options | Params | Struct | Insert |
-| --- | --- | --- | --- |
-| `struct: User` (default) | Yes | Yes | Yes |
-| No `struct:` option | Yes | No | No |
-| `insert?: false` | Yes | Yes | No |
-| `build_struct?: false` | Yes | No | No |
-| `build_params?: false` | No | Yes | Yes |
-| Embedded schema | Yes | Yes | No |
+| Options                  | Params | Struct | Insert |
+| ------------------------ | ------ | ------ | ------ |
+| `struct: User` (default) | Yes    | Yes    | Yes    |
+| No `struct:` option      | Yes    | No     | No     |
+| `insert?: false`         | Yes    | Yes    | No     |
+| `build_struct?: false`   | Yes    | No     | No     |
+| `build_params?: false`   | No     | Yes    | Yes    |
+| Embedded schema          | Yes    | Yes    | No     |
 
 ## Params For
 
@@ -267,7 +267,7 @@ Functions in factory params are evaluated at build time:
 }
 ```
 
-**Important:** 1-arity functions receive the map *before* lazy evaluation. Don't reference other
+**Important:** 1-arity functions receive the map _before_ lazy evaluation. Don't reference other
 lazy fields from a 1-arity function — they'll still be function references, not resolved values.
 
 ## Variant Factories
@@ -327,14 +327,14 @@ insert_*! (calls build_*_struct internally):
 
 Available hooks:
 
-| Hook | Receives | Purpose |
-| --- | --- | --- |
-| `before_build_params` | params map | Transform params before the factory body runs |
-| `after_build_params` | params map | Modify params after the factory body |
-| `before_build_struct` | params map | Last chance to modify params before `struct!()` |
-| `after_build_struct` | struct | Transform the struct after creation |
-| `before_insert` | struct | Modify struct just before database insertion |
-| `after_insert` | struct | Post-process after insertion (e.g. reset associations) |
+| Hook                  | Receives   | Purpose                                                |
+| --------------------- | ---------- | ------------------------------------------------------ |
+| `before_build_params` | params map | Transform params before the factory body runs          |
+| `after_build_params`  | params map | Modify params after the factory body                   |
+| `before_build_struct` | params map | Last chance to modify params before `struct!()`        |
+| `after_build_struct`  | struct     | Transform the struct after creation                    |
+| `before_insert`       | struct     | Modify struct just before database insertion           |
+| `after_insert`        | struct     | Post-process after insertion (e.g. reset associations) |
 
 Set hooks at the module level or per-factory:
 

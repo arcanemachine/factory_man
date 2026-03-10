@@ -23,7 +23,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "non-struct factory returns a plain map" do
-      params = ChildFactory.build_non_struct_params()
+      params = ChildFactory.build_non_struct()
 
       assert is_map(params)
       refute Map.has_key?(params, :__struct__)
@@ -222,7 +222,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "list works with non-struct factories" do
-      result = ChildFactory.build_non_struct_params_list(3)
+      result = ChildFactory.build_non_struct_list(3)
 
       assert length(result) == 3
       assert Enum.all?(result, &(is_map(&1) and not Map.has_key?(&1, :__struct__)))
@@ -393,7 +393,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "hooks transform factory output" do
-      params = ChildFactory.build_hooked_params()
+      params = ChildFactory.build_hooked()
 
       assert params.hook_applied == true
       assert is_binary(params.name)
@@ -646,35 +646,35 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
   describe "value factories" do
     test "returns a string" do
-      assert ChildFactory.build_greeting_params() == "Hello, world!"
+      assert ChildFactory.build_greeting() == "Hello, world!"
     end
 
     test "accepts a custom argument" do
-      assert ChildFactory.build_greeting_params("Alice") == "Hello, Alice!"
+      assert ChildFactory.build_greeting("Alice") == "Hello, Alice!"
     end
 
     test "returns nil" do
-      assert ChildFactory.build_nothing_params() == nil
+      assert ChildFactory.build_nothing() == nil
     end
 
     test "returns a tuple" do
-      assert ChildFactory.build_pair_params() == {:a, :b}
-      assert ChildFactory.build_pair_params({:x, :y}) == {:x, :y}
+      assert ChildFactory.build_pair() == {:a, :b}
+      assert ChildFactory.build_pair({:x, :y}) == {:x, :y}
     end
 
     test "returns a list" do
-      assert ChildFactory.build_tag_list_params() == ["tag-1", "tag-2", "tag-3"]
-      assert ChildFactory.build_tag_list_params("item") == ["item-1", "item-2", "item-3"]
+      assert ChildFactory.build_tag_list() == ["tag-1", "tag-2", "tag-3"]
+      assert ChildFactory.build_tag_list("item") == ["item-1", "item-2", "item-3"]
     end
 
     test "returns a keyword list" do
-      assert ChildFactory.build_options_params() == [timeout: 5000, retries: 3]
-      assert ChildFactory.build_options_params(retries: 10) == [timeout: 5000, retries: 10]
+      assert ChildFactory.build_options() == [timeout: 5000, retries: 3]
+      assert ChildFactory.build_options(retries: 10) == [timeout: 5000, retries: 10]
     end
 
     test "works with sequences" do
-      email1 = ChildFactory.build_unique_email_params()
-      email2 = ChildFactory.build_unique_email_params()
+      email1 = ChildFactory.build_unique_email()
+      email2 = ChildFactory.build_unique_email()
 
       assert email1 =~ ~r/user\d+@example\.com/
       assert email2 =~ ~r/user\d+@example\.com/
@@ -682,49 +682,49 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "list builder works with default" do
-      results = ChildFactory.build_greeting_params_list(3)
+      results = ChildFactory.build_greeting_list(3)
 
       assert length(results) == 3
       assert Enum.all?(results, &(&1 == "Hello, world!"))
     end
 
     test "list builder works with custom argument" do
-      results = ChildFactory.build_greeting_params_list(2, "Bob")
+      results = ChildFactory.build_greeting_list(2, "Bob")
 
       assert results == ["Hello, Bob!", "Hello, Bob!"]
     end
 
     test "list builder with non-map argument" do
-      results = ChildFactory.build_pair_params_list(2, {:x, :y})
+      results = ChildFactory.build_pair_list(2, {:x, :y})
 
       assert results == [{:x, :y}, {:x, :y}]
     end
 
     test "list builder with keyword list argument" do
-      results = ChildFactory.build_options_params_list(2, retries: 1)
+      results = ChildFactory.build_options_list(2, retries: 1)
 
       assert Enum.all?(results, &(&1 == [timeout: 5000, retries: 1]))
     end
 
     test "list builder with count 0 returns empty list" do
-      assert ChildFactory.build_greeting_params_list(0) == []
+      assert ChildFactory.build_greeting_list(0) == []
     end
 
     test "keyword list with lazy 0-arity attrs" do
-      result = ChildFactory.build_lazy_options_params()
+      result = ChildFactory.build_lazy_options()
 
       assert result[:timeout] == 5000
       assert %DateTime{} = result[:created_at]
     end
 
     test "keyword list with lazy 1-arity attrs" do
-      result = ChildFactory.build_lazy_options_params()
+      result = ChildFactory.build_lazy_options()
 
       assert result[:label] == "timeout-5000"
     end
 
     test "keyword list lazy attrs with overrides" do
-      result = ChildFactory.build_lazy_options_params(timeout: 9000)
+      result = ChildFactory.build_lazy_options(timeout: 9000)
 
       assert result[:timeout] == 9000
       # 1-arity receives the keyword list before lazy eval, so sees the raw fn for :label
@@ -791,6 +791,11 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "not generated for non-Ecto factories" do
       refute function_exported?(ChildFactory, :params_for_non_struct, 0)
+    end
+
+    test "non-struct factories use build_* (no _params suffix)" do
+      assert function_exported?(ChildFactory, :build_non_struct, 0)
+      refute function_exported?(ChildFactory, :build_non_struct_params, 0)
     end
   end
 

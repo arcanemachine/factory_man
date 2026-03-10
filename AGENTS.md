@@ -83,8 +83,8 @@ For a factory named `:user` with `struct: User`:
 | `build_user_struct_list/1,2`| `[%User{}]` | List of structs                   |
 | `insert_user_list!/1,2,3`   | `[%User{}]` | List of inserted records          |
 
-For a factory **without** `struct:` option, only `build_*_params` and `build_*_params_list` are
-generated.
+For a factory **without** `struct:` option, simplified names are used: `build_*/0,1` and
+`build_*_list/1,2` (no `_params` suffix).
 
 For **embedded schemas**, `insert_*` functions are automatically skipped.
 
@@ -105,8 +105,8 @@ insert_user! (calls build_user_struct internally):
 
 - **Don't pass keyword lists as params to struct factories.** Struct factories expect maps: `%{key: value}`, never `[key: value]`
 - **Don't forget `Map.merge(base_params, params)`** at the end of every struct/map factory body
-- **Don't use `build_user()` or `insert_user!()`** — the correct names include the type:
-  `build_user_struct()`, `build_user_params()`, `insert_user!()`
+- **Don't use `build_user()` or `insert_user!()`** for struct factories — the correct names include the type:
+  `build_user_struct()`, `build_user_params()`, `insert_user!()`. Non-struct factories use `build_*()` directly.
 - **Don't create structs in the factory body** (unless using `build_params?: false`). Return a plain map — the generated `build_*_struct` function handles struct conversion
 - **Don't define factories outside of modules that `use FactoryMan`**
 
@@ -140,8 +140,12 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
 
 - **Use `MIX_ENV=test` for non-test commands** (e.g. `iex -S mix`, `mix compile`) — factories are
   in `test/support/` and only compiled under the test env. `mix test` sets this automatically.
-- When you complete a task, review your changes for optimization opportunities, then run `mix format`
-  and tests (`mix test`), then make a commit.
+- When you complete a task:
+  1. Review your changes for optimization opportunities
+  2. Update relevant documentation (module docs, AGENTS.md, CHANGELOG.md) and ensure all docs
+     are consistent with the changes made
+  3. Run `mix format` and verify tests pass (`mix test`, or check the test-watch tmux session if running)
+  4. Make a release commit following the existing git history format (see `git log` for examples)
 - If asked to work on this project, clarify: FactoryMan library or demo schemas?
 - Always use tmux for interactive IEx sessions (see AGENTS.LOCAL.md)
 - The root factory for testing is `:user` via `FactoryManDemo.Factory.ChildFactory.build_user_struct/1`
