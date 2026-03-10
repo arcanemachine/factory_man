@@ -127,6 +127,32 @@ defmodule FactoryManDemo.Factory.ChildFactory do
   @doc "Adds a marker key to params (used to verify hooks work)."
   def after_build_params_handler(params), do: Map.put(params, :hook_applied, true)
 
+  # ── Value factories (arbitrary return types) ─────────────────────
+
+  deffactory greeting(name \\ "world") do
+    "Hello, #{name}!"
+  end
+
+  deffactory nothing(value \\ nil) do
+    value
+  end
+
+  deffactory pair(items \\ {:a, :b}) do
+    items
+  end
+
+  deffactory tag_list(prefix \\ "tag") do
+    Enum.map(1..3, fn i -> "#{prefix}-#{i}" end)
+  end
+
+  deffactory options(overrides \\ []) do
+    Keyword.merge([timeout: 5000, retries: 3], overrides)
+  end
+
+  deffactory unique_email(domain \\ "example.com") do
+    FactoryMan.sequence(:value_email, fn n -> "user#{n}@#{domain}" end)
+  end
+
   # ── Parameter patterns (macro behavior) ──────────────────────────
 
   # Simple variable without default — params are required

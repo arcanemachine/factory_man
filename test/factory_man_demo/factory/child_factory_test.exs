@@ -642,6 +642,75 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
   end
 
+  # ── Value factories (arbitrary return types) ─────────────────────
+
+  describe "value factories" do
+    test "returns a string" do
+      assert ChildFactory.build_greeting_params() == "Hello, world!"
+    end
+
+    test "accepts a custom argument" do
+      assert ChildFactory.build_greeting_params("Alice") == "Hello, Alice!"
+    end
+
+    test "returns nil" do
+      assert ChildFactory.build_nothing_params() == nil
+    end
+
+    test "returns a tuple" do
+      assert ChildFactory.build_pair_params() == {:a, :b}
+      assert ChildFactory.build_pair_params({:x, :y}) == {:x, :y}
+    end
+
+    test "returns a list" do
+      assert ChildFactory.build_tag_list_params() == ["tag-1", "tag-2", "tag-3"]
+      assert ChildFactory.build_tag_list_params("item") == ["item-1", "item-2", "item-3"]
+    end
+
+    test "returns a keyword list" do
+      assert ChildFactory.build_options_params() == [timeout: 5000, retries: 3]
+      assert ChildFactory.build_options_params(retries: 10) == [timeout: 5000, retries: 10]
+    end
+
+    test "works with sequences" do
+      email1 = ChildFactory.build_unique_email_params()
+      email2 = ChildFactory.build_unique_email_params()
+
+      assert email1 =~ ~r/user\d+@example\.com/
+      assert email2 =~ ~r/user\d+@example\.com/
+      assert email1 != email2
+    end
+
+    test "list builder works with default" do
+      results = ChildFactory.build_greeting_params_list(3)
+
+      assert length(results) == 3
+      assert Enum.all?(results, &(&1 == "Hello, world!"))
+    end
+
+    test "list builder works with custom argument" do
+      results = ChildFactory.build_greeting_params_list(2, "Bob")
+
+      assert results == ["Hello, Bob!", "Hello, Bob!"]
+    end
+
+    test "list builder with non-map argument" do
+      results = ChildFactory.build_pair_params_list(2, {:x, :y})
+
+      assert results == [{:x, :y}, {:x, :y}]
+    end
+
+    test "list builder with keyword list argument" do
+      results = ChildFactory.build_options_params_list(2, retries: 1)
+
+      assert Enum.all?(results, &(&1 == [timeout: 5000, retries: 1]))
+    end
+
+    test "list builder with count 0 returns empty list" do
+      assert ChildFactory.build_greeting_params_list(0) == []
+    end
+  end
+
   # ── deffactory/2,3 duplicate option warning ────────────────────
 
   describe "deffactory/2,3 duplicate option warning" do

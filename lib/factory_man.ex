@@ -465,6 +465,7 @@ defmodule FactoryMan do
     user_var = extraction.user_var
     arg_ast_no_default = extraction.arg_no_default
     has_pattern_match = extraction.has_pattern_match
+    has_default = extraction.has_default
     plain_var_ast = extraction.plain_var
 
     quote bind_quoted: [
@@ -474,6 +475,7 @@ defmodule FactoryMan do
             user_var: Macro.escape(user_var, unquote: true),
             arg_ast_no_default: Macro.escape(arg_ast_no_default, unquote: true),
             has_pattern_match: has_pattern_match,
+            has_default: has_default,
             plain_var_ast: Macro.escape(plain_var_ast, unquote: true),
             opts: opts,
             block: Macro.escape(block, unquote: true)
@@ -521,16 +523,17 @@ defmodule FactoryMan do
         end
 
         # Generate params list builder function
-        # Only generate convenience function if there's no pattern match without default
-        if not has_pattern_match do
+        # Only generate convenience function if argument has a default value
+        if has_default do
           def unquote(:"build_#{factory_name}_params_list")(count)
               when is_integer(count) and count >= 0 do
-            unquote(:"build_#{factory_name}_params_list")(count, %{})
+            Stream.repeatedly(fn -> unquote(:"build_#{factory_name}_params")() end)
+            |> Enum.take(count)
           end
         end
 
         def unquote(:"build_#{factory_name}_params_list")(count, params)
-            when is_integer(count) and count >= 0 and is_map(params) do
+            when is_integer(count) and count >= 0 do
           Stream.repeatedly(fn -> unquote(:"build_#{factory_name}_params")(params) end)
           |> Enum.take(count)
         end
@@ -888,6 +891,7 @@ defmodule FactoryMan do
       user_var: components.user_var,
       arg_no_default: components.arg_no_default,
       has_pattern_match: components.has_pattern_match,
+      has_default: components.has_default,
       plain_var: components.plain_var
     }
   end
@@ -912,6 +916,7 @@ defmodule FactoryMan do
       user_var: nil,
       arg_no_default: nil,
       has_pattern_match: false,
+      has_default: false,
       plain_var: nil
     })
   end
@@ -931,6 +936,7 @@ defmodule FactoryMan do
         # Keep the full pattern for implementation
         arg_no_default: pattern,
         has_pattern_match: true,
+        has_default: true,
         plain_var: var_ast
     }
   end
@@ -949,6 +955,7 @@ defmodule FactoryMan do
         user_var: user_var,
         arg_no_default: var_ast,
         has_pattern_match: false,
+        has_default: true,
         plain_var: var_ast
     }
   end
@@ -1023,7 +1030,7 @@ defmodule FactoryMan do
       ...> )
       %{first: "John", last: "John Smith"}
   """
-  @spec evaluate_lazy_attributes(struct | map) :: struct | map
+  @spec evaluate_lazy_attributes(any) :: any
   def evaluate_lazy_attributes(%{__struct__: record} = factory) do
     struct!(record, factory |> Map.from_struct() |> do_evaluate_lazy_attributes(factory))
   end
@@ -1031,6 +1038,8 @@ defmodule FactoryMan do
   def evaluate_lazy_attributes(attrs) when is_map(attrs) do
     do_evaluate_lazy_attributes(attrs, attrs)
   end
+
+  def evaluate_lazy_attributes(value), do: value
 
   defp do_evaluate_lazy_attributes(attrs, parent_factory) do
     attrs
