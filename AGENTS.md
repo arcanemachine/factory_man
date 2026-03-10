@@ -105,7 +105,7 @@ insert_user! (calls build_user_struct internally):
 - **Don't forget `Map.merge(base_params, params)`** at the end of every struct/map factory body
 - **Don't use `build_user()` or `insert_user!()`** — the correct names include the type:
   `build_user_struct()`, `build_user_params()`, `insert_user!()`
-- **Don't create structs in the factory body** (unless using `build_params?: false`). Return a plain map — FactoryMan calls `struct!()` for you
+- **Don't create structs in the factory body** (unless using `build_params?: false`). Return a plain map — the generated `build_*_struct` function handles struct conversion
 - **Don't define factories outside of modules that `use FactoryMan`**
 
 ### Lazy Evaluation

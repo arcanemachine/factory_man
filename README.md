@@ -106,8 +106,9 @@ deffactory user(params \\ %{}), struct: User do
 end
 ```
 
-When using the `:struct` option, the factory body must return a plain map so FactoryMan can call
-`struct!()` on it. If you need to return a struct directly, use `build_params?: false` instead.
+When using the `:struct` option, the factory body must return a plain map — the generated
+`build_*_struct` function converts it to a struct. If you need to return a struct directly, use
+`build_params?: false` instead.
 Without `:struct`, the body can return any value (see [Arbitrary value factories](#arbitrary-value-factories)).
 
 You can name the parameter anything and use pattern matching:
