@@ -77,6 +77,23 @@ defmodule FactoryMan do
   end
   ```
 
+  **Arbitrary return values** — factory bodies can return any value, not just maps. This is
+  useful for generating test data that isn't map-shaped (strings, keyword lists, tuples, etc.):
+
+  ```elixir
+  deffactory greeting(name \\\\ "world") do
+    "Hello, \#{name}!"
+  end
+
+  deffactory search_opts(overrides \\\\ []) do
+    Keyword.merge([page: 1, per_page: 20], overrides)
+  end
+  ```
+
+  Lazy evaluation works in keyword lists the same way it does in maps — 0-arity and 1-arity
+  functions are resolved at build time. Non-map, non-keyword-list values are passed through
+  unchanged.
+
   **Associations** — call other factories to build related records:
 
   ```elixir
@@ -147,19 +164,27 @@ defmodule FactoryMan do
 
   ## Lazy Evaluation
 
-  Functions in factory params are evaluated at build time:
+  Functions in factory params are evaluated at build time. This works in both maps and keyword
+  lists:
 
   ```elixir
+  # In maps
   %{
     created_at: fn -> DateTime.utc_now() end,               # 0-arity: called with no args
     display_name: fn user -> "\#{user.username} (User)" end  # 1-arity: receives parent map
   }
+
+  # In keyword lists
+  [
+    created_at: fn -> DateTime.utc_now() end,
+    label: fn kw -> "timeout-\#{kw[:timeout]}" end          # 1-arity: receives parent keyword list
+  ]
   ```
 
   > #### Lazy evaluation ordering {: .warning}
   >
-  > 1-arity functions receive the map **before** lazy evaluation. Don't reference other lazy
-  > fields — they'll still be function references, not resolved values.
+  > 1-arity functions receive the map or keyword list **before** lazy evaluation. Don't reference
+  > other lazy fields — they'll still be function references, not resolved values.
 
   ## Hooks
 
@@ -1013,10 +1038,13 @@ defmodule FactoryMan do
   defp extract_var_name({var_name, _, _}) when is_atom(var_name), do: var_name
 
   @doc """
-  Evaluate lazy attributes in a map or struct.
+  Evaluate lazy attributes in a map, struct, or keyword list.
 
   Functions with 0 arity are called with no arguments.
-  Functions with 1 arity receive the parent factory as their argument.
+  Functions with 1 arity receive the parent factory (map, struct, or keyword list) as their
+  argument.
+
+  Non-map, non-keyword-list values are passed through unchanged.
 
   ## Examples
 
@@ -1029,6 +1057,14 @@ defmodule FactoryMan do
       ...>   %{first: "John", last: fn attrs -> attrs.first <> " Smith" end}
       ...> )
       %{first: "John", last: "John Smith"}
+
+      iex> FactoryMan.evaluate_lazy_attributes(
+      ...>   [timeout: 5000, created_at: fn -> DateTime.utc_now() end]
+      ...> )
+      [timeout: 5000, created_at: ~U[2026-01-01 00:00:00Z]]
+
+      iex> FactoryMan.evaluate_lazy_attributes("plain string")
+      "plain string"
   """
   @spec evaluate_lazy_attributes(any) :: any
   def evaluate_lazy_attributes(%{__struct__: record} = factory) do

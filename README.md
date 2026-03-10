@@ -106,8 +106,9 @@ deffactory user(params \\ %{}), struct: User do
 end
 ```
 
-If building a factory with the `:struct` option, then your `params` must return a plain map. This is done so that FactoryMan can generate the `build_*_params` function.
-  - If you need to return a struct directly, pass `build_params?: false` as an option to bypass the `build_*_params` option.
+When using the `:struct` option, the factory body must return a plain map so FactoryMan can call
+`struct!()` on it. If you need to return a struct directly, use `build_params?: false` instead.
+Without `:struct`, the body can return any value (see [Arbitrary value factories](#arbitrary-value-factories)).
 
 You can name the parameter anything and use pattern matching:
 
@@ -129,6 +130,24 @@ deffactory api_payload(params \\ %{}) do
 end
 # Generates: build_api_payload_params/0,1, build_api_payload_params_list/1,2
 ```
+
+### Arbitrary value factories
+
+Without the `:struct` option, factory bodies can return any value — strings, keyword lists,
+tuples, or anything else:
+
+```elixir
+deffactory greeting(name \\ "world") do
+  "Hello, #{name}!"
+end
+
+deffactory search_opts(overrides \\ []) do
+  Keyword.merge([page: 1, per_page: 20], overrides)
+end
+# Generates: build_greeting_params/0,1, build_search_opts_params/0,1 (and _list variants)
+```
+
+Lazy evaluation works in keyword lists the same way it does in maps.
 
 ### Non-insertable factories
 

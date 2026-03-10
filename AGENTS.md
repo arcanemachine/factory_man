@@ -61,10 +61,11 @@ end
 ```
 
 Key rules:
-- The factory body must return a **map** (not a struct), unless using `build_params?: false`
+- With `struct:`, the factory body must return a **map** (not a struct), unless using `build_params?: false`
 - With `build_params?: false`, the body returns a **struct** directly (skips params builder + `struct!()`)
+- Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
 - You must merge `params` yourself — FactoryMan does not auto-merge
-- The parameter is always a map (`%{}`), never a keyword list
+- Lazy evaluation (0-arity and 1-arity functions) works in both maps and keyword lists
 - Factory names are atoms — the generated functions use that name
 
 ### Generated Function Naming
@@ -100,8 +101,8 @@ insert_user! (calls build_user_struct internally):
 
 ### Common Anti-Patterns
 
-- **Don't pass keyword lists as params.** Always use maps: `%{key: value}`, never `[key: value]`
-- **Don't forget `Map.merge(base_params, params)`** at the end of every factory body
+- **Don't pass keyword lists as params to struct factories.** Struct factories expect maps: `%{key: value}`, never `[key: value]`
+- **Don't forget `Map.merge(base_params, params)`** at the end of every struct/map factory body
 - **Don't use `build_user()` or `insert_user!()`** — the correct names include the type:
   `build_user_struct()`, `build_user_params()`, `insert_user!()`
 - **Don't create structs in the factory body** (unless using `build_params?: false`). Return a plain map — FactoryMan calls `struct!()` for you
@@ -109,7 +110,8 @@ insert_user! (calls build_user_struct internally):
 
 ### Lazy Evaluation
 
-0-arity functions are evaluated at build time. 1-arity functions receive the parent map:
+0-arity functions are evaluated at build time. 1-arity functions receive the parent map or
+keyword list:
 
 ```elixir
 %{
