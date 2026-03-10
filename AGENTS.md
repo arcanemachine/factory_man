@@ -77,6 +77,8 @@ For a factory named `:user` with `struct: User`:
 | `build_user_params/0,1`     | `%{}`       | Plain map (for changesets, APIs)  |
 | `build_user_struct/0,1`     | `%User{}`   | Struct in memory (not persisted)  |
 | `insert_user!/1,2`          | `%User{}`   | Inserted into database            |
+| `params_for_user/0,1`       | `%{}`       | Stripped params (no Ecto metadata)|
+| `string_params_for_user/0,1`| `%{"" => }` | Stripped params with string keys  |
 | `build_user_params_list/1,2`| `[%{}, ...]`| List of params maps               |
 | `build_user_struct_list/1,2`| `[%User{}]` | List of structs                   |
 | `insert_user_list!/1,2,3`   | `[%User{}]` | List of inserted records          |
@@ -138,7 +140,8 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
 
 - **Use `MIX_ENV=test` for non-test commands** (e.g. `iex -S mix`, `mix compile`) — factories are
   in `test/support/` and only compiled under the test env. `mix test` sets this automatically.
-- When you complete a task, always run `mix format` and tests (`mix test`), then make a commit.
+- When you complete a task, review your changes for optimization opportunities, then run `mix format`
+  and tests (`mix test`), then make a commit.
 - If asked to work on this project, clarify: FactoryMan library or demo schemas?
 - Always use tmux for interactive IEx sessions (see AGENTS.LOCAL.md)
 - The root factory for testing is `:user` via `FactoryManDemo.Factory.ChildFactory.build_user_struct/1`
