@@ -17,7 +17,7 @@ defmodule MyApp.Factory do
   alias MyApp.Accounts.User
   alias MyApp.Blog.Post
 
-  # Basic factory — returns a map, FactoryMan wraps it with struct!()
+  # Basic factory
   deffactory user(params \\ %{}), struct: User do
     base_params = %{
       username: sequence("user"),
@@ -96,8 +96,7 @@ Then run `mix deps.get`.
 
 ### Basic factories
 
-Use `deffactory` to define a factory. The body returns a **plain map** — FactoryMan calls
-`struct!()` for you:
+Use `deffactory` to define a factory:
 
 ```elixir
 deffactory user(params \\ %{}), struct: User do
@@ -107,10 +106,8 @@ deffactory user(params \\ %{}), struct: User do
 end
 ```
 
-Key rules:
-- The factory body must return a **map**, not a struct
-- You must merge `params` yourself — FactoryMan does not auto-merge
-- The parameter is always a map (`%{}`), never a keyword list
+If building a factory with the `:struct` option, then your `params` must return a plain map. This is done so that FactoryMan can generate the `build_*_params` function.
+  - If you need to return a struct directly, pass `build_params?: false` as an option to bypass the `build_*_params` option.
 
 You can name the parameter anything and use pattern matching:
 
