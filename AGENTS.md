@@ -2,7 +2,9 @@
 
 ## Project Purpose
 
-This is the **FactoryMan repository**, an Elixir testing factory library.
+This is the **FactoryMan repository**, an Elixir library for generating test data. Factories are
+defined with `deffactory`, and FactoryMan generates functions for building params, structs, and
+database records.
 
 **FactoryMan is the product.** The blog schemas (Users, Authors, Posts, Tags) are just showcase
 examples — do not modify them unless specifically asked.
@@ -11,25 +13,30 @@ examples — do not modify them unless specifically asked.
 
 ```
 lib/
-  factory_man.ex              # THE MAIN LIBRARY - core macro system
+  factory_man.ex              # Main module — core macro system
   factory_man/
     sequence.ex               # Sequence generation (Agent-based counter)
 
 test/
+  test_helper.exs
   support/
+    data_case.ex
     factory_man_demo/
+      application.ex
+      repo.ex
       factory.ex              # Base factory (repo config, hooks)
       factory/
         child_factory.ex      # Child factory (all factory definitions)
+      users.ex                # Context modules (not the product)
       users/user.ex           # Demo schemas (not the product)
+      authors.ex
       authors/author.ex
+      posts.ex
       posts/post.ex
+      tags.ex
       tags/tag.ex
       posts_tags/post_tag.ex
       embedded_schema.ex
-      repo.ex
-      application.ex
-    data_case.ex
   factory_man/
     sequence_test.exs
   factory_man_demo/
@@ -127,9 +134,9 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
 
 ## Development Notes
 
-- **ALWAYS use `MIX_ENV=test` for factory work** — factories are in `test/support/`
-- **Run tests:** `MIX_ENV=test mix test`
-- Run `mix format` when you have completed a task.
+- **Use `MIX_ENV=test` for non-test commands** (e.g. `iex -S mix`, `mix compile`) — factories are
+  in `test/support/` and only compiled under the test env. `mix test` sets this automatically.
+- When you complete a task, always run `mix format` and tests (`mix test`), then make a commit.
 - If asked to work on this project, clarify: FactoryMan library or demo schemas?
 - Always use tmux for interactive IEx sessions (see AGENTS.LOCAL.md)
 - The root factory for testing is `:user` via `FactoryManDemo.Factory.ChildFactory.build_user_struct/1`
