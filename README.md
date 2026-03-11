@@ -188,7 +188,8 @@ end
 ```
 
 `build_params?: false` can also be set at the module level via
-`use FactoryMan, build_params?: false`.
+`use FactoryMan, build_params?: false`. Non-struct factories in the same module are unaffected —
+their `build_*` functions are always generated.
 
 ## Generated Functions
 

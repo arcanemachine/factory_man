@@ -157,8 +157,8 @@ defmodule FactoryMan do
   - `:struct` — Ecto schema module (enables struct and insert functions)
   - `:insert?` — Set to `false` to skip insert functions
   - `:build_struct?` — Set to `false` to skip struct builders
-  - `:build_params?` — Set to `false` to skip params builders (body returns struct directly,
-    requires `:struct`)
+  - `:build_params?` — Set to `false` to skip params builders (body returns struct directly).
+    Only affects struct factories; ignored for non-struct factories.
   - `:hooks` — Merged with module-level hooks
   - `:suppress_duplicate_option_warning` — Suppress warnings for redundant options
 
@@ -344,7 +344,8 @@ defmodule FactoryMan do
   hooks are skipped since there is no params-to-struct conversion stage.
 
   `build_params?: false` can also be set at the module level with `use FactoryMan, build_params?: false`,
-  then overridden per-factory with `build_params?: true` if needed.
+  then overridden per-factory with `build_params?: true` if needed. Non-struct factories in the
+  same module are unaffected — their `build_*` functions are always generated.
 
   ## Variant Factories (`defvariant`)
 
@@ -568,17 +569,12 @@ defmodule FactoryMan do
       # Extract hooks - used many times throughout
       hooks = merged_hooks
 
-      # Validate: build_params?: false requires struct: option
-      if merged_opts[:build_params?] == false and is_nil(merged_opts[:struct]) do
-        raise ArgumentError,
-              "deffactory #{factory_name}: build_params?: false requires the struct: option, " <>
-                "otherwise no functions would be generated"
-      end
-
-      # Generate params builder functions (skipped when build_params?: false)
+      # Generate params builder functions (skipped when build_params?: false for struct factories)
       # Non-struct factories use `build_*` / `build_*_list` (no suffix).
       # Struct factories use `build_*_params` / `build_*_params_list`.
-      if merged_opts[:build_params?] != false do
+      # build_params?: false is a no-op for non-struct factories — their build_* functions
+      # are always generated since they are the factory's only output.
+      if merged_opts[:build_params?] != false or is_nil(merged_opts[:struct]) do
         params_suffix = if merged_opts[:struct], do: "_params", else: ""
         build_fn = :"build_#{factory_name}#{params_suffix}"
         build_list_fn = :"build_#{factory_name}#{params_suffix}_list"
@@ -845,7 +841,7 @@ defmodule FactoryMan do
 
       # Generate params builder variant (if base factory has params)
       # Non-struct factories use `build_*` / `build_*_list` (no suffix).
-      if base_opts[:build_params?] != false do
+      if base_opts[:build_params?] != false or is_nil(base_opts[:struct]) do
         params_suffix = if base_opts[:struct], do: "_params", else: ""
         build_fn = :"build_#{full_name}#{params_suffix}"
         build_list_fn = :"build_#{full_name}#{params_suffix}_list"

@@ -376,20 +376,47 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert user.username == "custom"
     end
 
-    test "build_params?: false without struct: raises at compile time" do
-      assert_raise ArgumentError,
-                   ~r/build_params\?: false requires the struct: option/,
-                   fn ->
-                     Code.compile_string("""
-                     defmodule TestParamsFalseNoStruct do
-                       use FactoryMan
+    test "build_params?: false is a no-op for non-struct factories" do
+      [{mod, _}] =
+        Code.compile_string("""
+        defmodule TestBuildParamsFalseNoStruct do
+          use FactoryMan
 
-                       deffactory broken(params \\\\ %{}), build_params?: false do
-                         %{}
-                       end
-                     end
-                     """)
-                   end
+          deffactory thing(params \\\\ %{}), build_params?: false do
+            Map.merge(%{name: "hello"}, params)
+          end
+        end
+        """)
+
+      assert mod.build_thing() == %{name: "hello"}
+      assert mod.build_thing(%{name: "world"}) == %{name: "world"}
+    end
+
+    test "module-level build_params?: false works with mixed struct and non-struct factories" do
+      [{mod, _}] =
+        Code.compile_string("""
+        defmodule TestMixedBuildParamsFalse do
+          use FactoryMan, build_params?: false
+
+          deffactory plain(params \\\\ %{}) do
+            Map.merge(%{name: "plain"}, params)
+          end
+
+          deffactory raw(params \\\\ %{}), struct: FactoryManDemo.Users.User do
+            username = Map.get(params, :username, "raw")
+            %FactoryManDemo.Users.User{username: username}
+          end
+        end
+        """)
+
+      # Non-struct factory generates build_* as normal
+      assert mod.build_plain() == %{name: "plain"}
+
+      # Struct factory with build_params?: false has no params builder
+      refute function_exported?(mod, :build_raw_params, 0)
+
+      # But does have struct builder
+      assert %FactoryManDemo.Users.User{username: "raw"} = mod.build_raw_struct()
     end
 
     test "hooks transform factory output" do

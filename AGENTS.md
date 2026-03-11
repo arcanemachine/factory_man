@@ -63,6 +63,7 @@ end
 Key rules:
 - With `struct:`, the factory body must return a **map** (not a struct), unless using `build_params?: false`
 - With `build_params?: false`, the body returns a **struct** directly (skips params builder + `struct!()`)
+- `build_params?: false` is ignored for non-struct factories — their `build_*` functions are always generated
 - Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
 - You must merge `params` yourself — FactoryMan does not auto-merge
 - Lazy evaluation (0-arity and 1-arity functions) works in both maps and keyword lists
@@ -143,7 +144,7 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
 - When you complete a task:
   1. Review your changes for optimization opportunities
   2. Update relevant documentation (module docs, AGENTS.md, CHANGELOG.md) and ensure all docs
-     are consistent with the changes made
+     are consistent with the changes made. **Never modify old changelog entries** — only add new ones.
   3. Run `mix format` and verify tests pass (`mix test`, or check the test-watch tmux session if running)
   4. Make a release commit following the existing git history format (see `git log` for examples)
 - If asked to work on this project, clarify: FactoryMan library or demo schemas?
