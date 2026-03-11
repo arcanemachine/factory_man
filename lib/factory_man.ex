@@ -793,8 +793,9 @@ defmodule FactoryMan do
 
   - `:for` - (atom, required) The name of the base factory to wrap (e.g. `:user`)
 
-  - `:as` - Instead of the default `<variant>_<base>` structure (e.g. `admin_user`), you may
-  specify a custom name for the factory (e.g. `:admin`)
+  - `:as` - Instead of the default `<variant>_<base>` structure used when generating factory
+  functions, (e.g. `build_admin_user_struct`), you may specify a custom name to use when
+  generating the factory functions (e.g. `as: :admin` -> `build_admin_struct`)
   """
 
   defmacro defvariant(variant_head, opts, do: block) do
