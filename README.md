@@ -8,7 +8,7 @@ set. See the examples below.
 
 ## Quick Tour
 
-### Build factories
+Build factories:
 
 ```elixir
 defmodule MyApp.Factory do
@@ -24,30 +24,30 @@ defmodule MyApp.Factory do
       email: sequence(:email, fn n -> "user#{n}@example.com" end),
       role: sequence(:role, ["admin", "mod", "user"]),
       joined_at: fn -> DateTime.utc_now() end,
-      display: fn u -> "#{u.username} (#{u.role})" end
+      display: fn user -> "#{user.username} (#{user.role})" end
     }
 
     Map.merge(base_params, params)
   end
 
-  # Variant — preprocesses params, then delegates to the base factory
+  # Variant: Preprocesses params, then delegates to the base factory
   defvariant admin(params \\ %{}), for: :user do
     base_params = %{role: "admin"}
 
     Map.merge(base_params, params)
   end
 
-  # Associations — call other factories to build related records
+  # Associations: Call other factories to build related records
   deffactory post(params \\ %{}), struct: Post do
     base_params = %{
       title: sequence("post", fn n -> "Post ##{n}" end),
-      author: params[:author] || build_user_struct()
+      author: Map.get_lazy(params, :author, fn -> build_user_struct() end)
     }
 
     Map.merge(base_params, params)
   end
 
-  # Params-only (no struct) — only generates build_*_params functions
+  # Struct-less factories: Only generates `build_*` and `build_*_list` functions
   deffactory api_payload(params \\ %{}) do
     base_params = %{action: "create", resource: "user"}
 
@@ -56,7 +56,7 @@ defmodule MyApp.Factory do
 end
 ```
 
-### FactoryMan generates functions from your factories
+FactoryMan generates functions from your factories:
 
 ```elixir
 iex> Factory.build_user_params()
@@ -74,7 +74,7 @@ iex> Factory.insert_user_list(3)
 iex> Factory.build_admin_user_struct()
 %User{role: "admin", username: "user3", ...}
 
-iex> Factory.build_api_payload_params()
+iex> Factory.build_api_payload()
 %{action: "create", resource: "user"}
 ```
 
@@ -123,18 +123,16 @@ end
 
 ### Params-only factories
 
-Omit the `struct:` option to create factories that only generate `build_*_params` functions:
+Omit the `struct:` option to create factories that only generate `build_*` and `build_*_list` functions:
 
 ```elixir
 deffactory api_payload(params \\ %{}) do
   %{action: "create", data: params}
 end
-# Generates: build_api_payload_params/0,1, build_api_payload_params_list/1,2
+# Generates: build_api_payload/0,1, build_api_payload_list/1,2
 ```
 
-### Arbitrary value factories
-
-Without the `:struct` option, factory bodies can return any value — strings, keyword lists,
+Without the `:struct` option, factory bodies can return any value: strings, keyword lists,
 tuples, or anything else:
 
 ```elixir
@@ -145,15 +143,14 @@ end
 deffactory search_opts(overrides \\ []) do
   Keyword.merge([page: 1, per_page: 20], overrides)
 end
-# Generates: build_greeting_params/0,1, build_search_opts_params/0,1 (and _list variants)
+# Generates: build_greeting/0,1, build_search_opts/0,1 (and _list variants)
 ```
 
 Lazy evaluation works in keyword lists the same way it does in maps.
 
 ### Non-insertable factories
 
-Use `insert?: false` to skip insert function generation, or let FactoryMan detect embedded schemas
-automatically:
+Use `insert?: false` to skip insert function generation if you want a factory to be "build-only":
 
 ```elixir
 deffactory read_only_user(params \\ %{}), struct: User, insert?: false do
@@ -164,6 +161,11 @@ end
 # Generates: build_read_only_user_params, build_read_only_user_struct (and _list variants)
 # Skips: insert_read_only_user
 ```
+
+> #### Tip {: .tip}
+>
+> FactoryMan can detect when a struct is an Ecto embedded schema, and will not generate `insert_*`
+> functions for embedded schemas.
 
 ### Direct struct factories (`build_params?: false`)
 
@@ -187,8 +189,8 @@ end
 # Skips: build_invoice_params
 ```
 
-`build_params?: false` can also be set at the module level via
-`use FactoryMan, build_params?: false`. Non-struct factories in the same module are unaffected —
+`build_params?: false` can also be set at the module level with
+`use FactoryMan, build_params?: false`. Non-struct factories in the same module are unaffected;
 their `build_*` functions are always generated.
 
 ## Generated Functions

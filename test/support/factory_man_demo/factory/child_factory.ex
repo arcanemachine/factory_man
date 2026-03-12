@@ -15,7 +15,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
 
   deffactory author(params \\ %{}), struct: Author do
     base_params = %{
-      user: params[:user] || build_user_struct(),
+      user: Map.get_lazy(params, :user, fn -> build_user_struct() end),
       name: "Some author"
     }
 
@@ -61,7 +61,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
   deffactory lazy_author(params \\ %{}), struct: Author do
     base_params = %{
       name: fn author -> "author-#{author.user.first_name}" end,
-      user: params[:user] || build_lazy_user_struct()
+      user: Map.get_lazy(params, :user, fn -> build_lazy_user_struct() end)
     }
 
     Map.merge(base_params, params)

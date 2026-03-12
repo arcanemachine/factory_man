@@ -116,7 +116,7 @@ defmodule FactoryMan do
   deffactory author(params \\\\ %{}), struct: Author do
     base_params = %{
       name: "Test Author",
-      user: params[:user] || build_user_struct()
+      user: Map.get_lazy(params, :user, fn -> build_user_struct() end)
     }
 
     Map.merge(base_params, params)
