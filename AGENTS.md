@@ -77,12 +77,12 @@ For a factory named `:user` with `struct: User`:
 | --------------------------- | ----------- | -------------------------------- |
 | `build_user_params/0,1`     | `%{}`       | Plain map (for changesets, APIs)  |
 | `build_user_struct/0,1`     | `%User{}`   | Struct in memory (not persisted)  |
-| `insert_user/1,2`          | `%User{}`   | Inserted into database            |
+| `insert_user/0,1,2`         | `%User{}`   | Inserted into database            |
 | `params_for_user/0,1`       | `%{}`       | Stripped params (no Ecto metadata)|
 | `string_params_for_user/0,1`| `%{"" => }` | Stripped params with string keys  |
 | `build_user_params_list/1,2`| `[%{}, ...]`| List of params maps               |
 | `build_user_struct_list/1,2`| `[%User{}]` | List of structs                   |
-| `insert_user_list/1,2,3`   | `[%User{}]` | List of inserted records          |
+| `insert_user_list/1,2,3`    | `[%User{}]` | List of inserted records          |
 
 For a factory **without** `struct:` option, simplified names are used: `build_*/0,1` and
 `build_*_list/1,2` (no `_params` suffix).

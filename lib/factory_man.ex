@@ -27,12 +27,12 @@ defmodule FactoryMan do
   | ---------------------------- | ---------------- | ---------------------------------- |
   | `build_user_params/0,1`      | `%{}`            | Plain map (for changesets, APIs)   |
   | `build_user_struct/0,1`      | `%User{}`        | Struct in memory (not persisted)   |
-  | `insert_user/0,1`            | `%User{}`        | Inserted into database             |
+  | `insert_user/0,1,2`          | `%User{}`        | Inserted into database             |
   | `params_for_user/0,1`        | `%{}`            | Stripped params (no Ecto metadata) |
   | `string_params_for_user/0,1` | `%{"" => ...}`   | Stripped params with string keys   |
   | `build_user_params_list/1,2` | `[%{}, ...]`     | List of params maps                |
   | `build_user_struct_list/1,2` | `[%User{}, ...]` | List of structs                    |
-  | `insert_user_list/1,2`       | `[%User{}, ...]` | List of inserted records           |
+  | `insert_user_list/1,2,3`     | `[%User{}, ...]` | List of inserted records           |
 
   All functions accept optional params for customization. Insert functions also accept repo
   options. Each item in a list is evaluated independently (unique timestamps, sequences, etc.).
@@ -493,12 +493,12 @@ defmodule FactoryMan do
 
   - `build_user_params/1` - Returns plain params
   - `build_user_struct/1` - Returns an unsaved struct
-  - `insert_user/1` - Inserts into the database (when repo is configured)
+  - `insert_user/0,1,2` - Inserts into the database (when repo is configured)
   - `params_for_user/1` - Stripped params map (when struct is an Ecto schema)
   - `string_params_for_user/1` - Stripped params with string keys (when struct is an Ecto schema)
   - `build_user_params_list/2` - Builds multiple items
   - `build_user_struct_list/2` - Builds multiple structs
-  - `insert_user_list/2` - Inserts multiple items (when repo is configured)
+  - `insert_user_list/1,2,3` - Inserts multiple items (when repo is configured)
 
   For a factory named `greeting` without `struct:`, simplified names are used:
 
