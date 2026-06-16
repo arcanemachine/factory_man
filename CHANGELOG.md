@@ -5,13 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-06-15
 
 ### Changed
 
-- Generated insert functions no longer include a trailing `!`. For example, `insert_user!/0,1` is now
-  `insert_user/0,1` and `insert_user_list!/1,2` is now `insert_user_list/1,2`. This aligns the API
-  with other factory libraries and removes the implication that a non-bang variant exists.
+- **Breaking:** Generated insert functions no longer include a trailing `!`. For example,
+  `insert_user!/0,1,2` is now `insert_user/0,1,2` and `insert_user_list!/1,2,3` is now
+  `insert_user_list/1,2,3`. This aligns the API with other factory libraries and removes the
+  implication that a non-bang variant exists.
 
 ## [0.4.1] - 2026-03-11
 
