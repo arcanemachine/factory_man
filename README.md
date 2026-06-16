@@ -65,10 +65,10 @@ iex> Factory.build_user_params()
 iex> Factory.build_user_struct()
 %User{username: "user1", email: "user1@example.com", ...}
 
-iex> Factory.insert_user!()
+iex> Factory.insert_user()
 %User{id: 1, username: "user2", ...}
 
-iex> Factory.insert_user_list!(3)
+iex> Factory.insert_user_list(3)
 [%User{id: 2, ...}, %User{id: 3, ...}, %User{id: 4, ...}]
 
 iex> Factory.build_admin_user_struct()
@@ -85,7 +85,7 @@ Add FactoryMan to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:factory_man, "~> 0.3.0"}
+    {:factory_man, "~> 0.4.0"}
   ]
 end
 ```
@@ -162,7 +162,7 @@ deffactory read_only_user(params \\ %{}), struct: User, insert?: false do
   Map.merge(base_params, params)
 end
 # Generates: build_read_only_user_params, build_read_only_user_struct (and _list variants)
-# Skips: insert_read_only_user!
+# Skips: insert_read_only_user
 ```
 
 ### Direct struct factories (`build_params?: false`)
@@ -175,7 +175,7 @@ deffactory invoice(params \\ %{}), struct: Invoice, build_params?: false do
   customer =
     case params[:customer] do
       %Customer{} = c -> c
-      _ -> MyApp.Factory.Accounts.insert_customer!()
+      _ -> MyApp.Factory.Accounts.insert_customer()
     end
 
   %Invoice{
@@ -183,7 +183,7 @@ deffactory invoice(params \\ %{}), struct: Invoice, build_params?: false do
     total: Map.get(params, :total, Enum.random(100..10_000))
   }
 end
-# Generates: build_invoice_struct, insert_invoice! (and _list variants)
+# Generates: build_invoice_struct, insert_invoice (and _list variants)
 # Skips: build_invoice_params
 ```
 
@@ -199,12 +199,12 @@ For a factory named `:user` with `struct: User`:
 | ---------------------------- | ---------------- | ---------------------------------- |
 | `build_user_params/0,1`      | `%{}`            | Plain map (for changesets, APIs)   |
 | `build_user_struct/0,1`      | `%User{}`        | Struct in memory (not persisted)   |
-| `insert_user!/0,1`           | `%User{}`        | Inserted into database             |
+| `insert_user/0,1`           | `%User{}`        | Inserted into database             |
 | `params_for_user/0,1`        | `%{}`            | Stripped params (no Ecto metadata) |
 | `string_params_for_user/0,1` | `%{"" => ...}`   | Stripped params with string keys   |
 | `build_user_params_list/1,2` | `[%{}, ...]`     | List of params maps                |
 | `build_user_struct_list/1,2` | `[%User{}, ...]` | List of structs                    |
-| `insert_user_list!/1,2`      | `[%User{}, ...]` | List of inserted records           |
+| `insert_user_list/1,2`      | `[%User{}, ...]` | List of inserted records           |
 
 What gets generated depends on the options:
 
@@ -295,7 +295,7 @@ Code order:       deffactory user(...)   ->  defvariant admin(...), for: :user
 Execution order:  admin (preprocessor)   ->  user (base factory)
 ```
 
-This generates `build_admin_user_struct/0,1`, `insert_admin_user!/0,1,2`, and list variants.
+This generates `build_admin_user_struct/0,1`, `insert_admin_user/0,1,2`, and list variants.
 Calling `build_admin_user_struct()` is equivalent to `build_user_struct(%{role: "admin"})`.
 
 ### Custom naming with `:as`
@@ -308,7 +308,7 @@ defvariant moderator(params \\ %{}), for: :user, as: :mod do
 
   Map.merge(base_params, params)
 end
-# Generates: build_mod_struct/0,1, insert_mod!/0,1,2, etc.
+# Generates: build_mod_struct/0,1, insert_mod/0,1,2, etc.
 ```
 
 ## Hooks
@@ -322,7 +322,7 @@ build_*_params:
 build_*_struct (calls build_*_params internally):
   -> before_build_struct -> struct!() -> after_build_struct
 
-insert_*! (calls build_*_struct internally):
+insert_* (calls build_*_struct internally):
   -> before_insert -> Repo.insert!() -> after_insert
 ```
 
@@ -408,7 +408,7 @@ test/support/
 - **`build_*_struct`** — For setting association fields on other structs being built in memory. Use
   when the record doesn't need to exist in the database yet.
 
-- **`insert_*!`** — When a foreign key constraint requires the record to exist, or when the test
+- **`insert_*`** — When a foreign key constraint requires the record to exist, or when the test
   queries the database for it.
 
 - **Lazy 0-arity** — When a default is expensive to compute or depends on runtime state.

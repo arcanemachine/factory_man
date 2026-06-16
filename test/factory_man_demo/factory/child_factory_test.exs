@@ -53,22 +53,22 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
       assert %FactoryManDemo.EmbeddedSchema{} = embedded
       assert embedded.some_field == "some value"
-      refute function_exported?(ChildFactory, :insert_embedded_schema!, 0)
+      refute function_exported?(ChildFactory, :insert_embedded_schema, 0)
     end
   end
 
-  # ── insert_*! ────────────────────────────────────────────────────
+  # ── insert_* ────────────────────────────────────────────────────
 
-  describe "insert_*!" do
+  describe "insert_*" do
     test "inserts with defaults and returns a persisted struct" do
-      user = ChildFactory.insert_user!()
+      user = ChildFactory.insert_user()
 
       assert %User{} = user
       assert is_integer(user.id)
     end
 
     test "caller params override defaults" do
-      user = ChildFactory.insert_user!(%{username: "charlie-#{System.os_time()}"})
+      user = ChildFactory.insert_user(%{username: "charlie-#{System.os_time()}"})
 
       assert is_integer(user.id)
       assert String.starts_with?(user.username, "charlie-")
@@ -76,22 +76,22 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "accepts repo options as second argument" do
       user =
-        ChildFactory.insert_user!(%{username: "repo-opts-#{System.os_time()}"}, returning: true)
+        ChildFactory.insert_user(%{username: "repo-opts-#{System.os_time()}"}, returning: true)
 
       assert is_integer(user.id)
     end
 
     test "repo options can handle conflicts" do
       username = "conflict-#{System.os_time()}"
-      ChildFactory.insert_user!(%{username: username})
+      ChildFactory.insert_user(%{username: username})
 
       # Duplicate insert with on_conflict: :nothing should not raise
-      ChildFactory.insert_user!(%{username: username}, on_conflict: :nothing)
+      ChildFactory.insert_user(%{username: username}, on_conflict: :nothing)
     end
 
     test "multiple inserts produce unique records" do
-      user1 = ChildFactory.insert_user!()
-      user2 = ChildFactory.insert_user!()
+      user1 = ChildFactory.insert_user()
+      user2 = ChildFactory.insert_user()
 
       assert user1.id != user2.id
     end
@@ -115,8 +115,8 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "inserted association is persisted and preloadable" do
-      user = ChildFactory.insert_user!(%{username: "assoc-user-#{System.os_time()}"})
-      author = ChildFactory.insert_author!(%{user: user})
+      user = ChildFactory.insert_user(%{username: "assoc-user-#{System.os_time()}"})
+      author = ChildFactory.insert_author(%{user: user})
 
       assert is_integer(author.user_id)
       loaded_author = Repo.preload(author, :user)
@@ -124,7 +124,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "inserting a factory auto-inserts its associations" do
-      author = ChildFactory.insert_author!()
+      author = ChildFactory.insert_author()
 
       assert is_integer(author.user_id)
       loaded_author = Repo.preload(author, :user)
@@ -149,7 +149,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "extended factory can be inserted" do
-      user = ChildFactory.insert_extended_user!()
+      user = ChildFactory.insert_extended_user()
 
       assert is_integer(user.id)
       assert String.starts_with?(user.username, "extended-user-")
@@ -182,8 +182,8 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert length(Enum.uniq(usernames)) == 3
     end
 
-    test "insert_*_list! returns persisted records" do
-      users = ChildFactory.insert_user_list!(3)
+    test "insert_*_list returns persisted records" do
+      users = ChildFactory.insert_user_list(3)
 
       assert length(users) == 3
       assert Enum.all?(users, &is_integer(&1.id))
@@ -191,9 +191,9 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert length(Enum.uniq(usernames)) == 3
     end
 
-    test "insert_*_list! accepts params" do
+    test "insert_*_list accepts params" do
       users =
-        ChildFactory.insert_user_list!(2, %{
+        ChildFactory.insert_user_list(2, %{
           username: fn -> "list-#{System.os_time()}" end
         })
 
@@ -201,15 +201,15 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert Enum.all?(users, &String.starts_with?(&1.username, "list-"))
     end
 
-    test "insert_*_list! accepts repo opts as keyword list" do
-      users = ChildFactory.insert_user_list!(2, returning: true)
+    test "insert_*_list accepts repo opts as keyword list" do
+      users = ChildFactory.insert_user_list(2, returning: true)
 
       assert length(users) == 2
       assert Enum.all?(users, &is_integer(&1.id))
     end
 
-    test "insert_*_list! accepts both params and repo opts" do
-      users = ChildFactory.insert_user_list!(2, %{}, returning: true)
+    test "insert_*_list accepts both params and repo opts" do
+      users = ChildFactory.insert_user_list(2, %{}, returning: true)
 
       assert length(users) == 2
       assert Enum.all?(users, &is_integer(&1.id))
@@ -218,7 +218,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     test "count 0 returns an empty list" do
       assert [] = ChildFactory.build_user_params_list(0)
       assert [] = ChildFactory.build_user_struct_list(0)
-      assert [] = ChildFactory.insert_user_list!(0)
+      assert [] = ChildFactory.insert_user_list(0)
     end
 
     test "list works with non-struct factories" do
@@ -229,7 +229,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "list inserts with associations create unique associated records" do
-      authors = ChildFactory.insert_author_list!(2)
+      authors = ChildFactory.insert_author_list(2)
 
       assert length(authors) == 2
       loaded = Enum.map(authors, &Repo.preload(&1, :user))
@@ -295,7 +295,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "lazy evaluation works through insert" do
-      author = ChildFactory.insert_lazy_author!()
+      author = ChildFactory.insert_lazy_author()
 
       assert is_integer(author.id)
       loaded = Repo.preload(author, :user)
@@ -353,7 +353,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     test "insert?: false prevents insert function generation" do
       assert function_exported?(ChildFactory, :build_non_insertable_params, 0)
       assert function_exported?(ChildFactory, :build_non_insertable_struct, 0)
-      refute function_exported?(ChildFactory, :insert_non_insertable!, 0)
+      refute function_exported?(ChildFactory, :insert_non_insertable, 0)
     end
 
     test "build_params?: false skips params builder generation" do
@@ -461,7 +461,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "pattern match with default can be inserted" do
-      user = ChildFactory.insert_combined_pattern!(%{first_name: "Bob"})
+      user = ChildFactory.insert_combined_pattern(%{first_name: "Bob"})
 
       assert is_integer(user.id)
       assert user.full_name == "Bob User"
@@ -506,7 +506,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "variant insert delegates to base factory insert pipeline" do
-      user = ChildFactory.insert_admin_user!()
+      user = ChildFactory.insert_admin_user()
       assert %User{} = user
       assert user.id != nil
       assert String.starts_with?(user.username, "admin-")
@@ -802,7 +802,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "sets FK for persisted belongs_to" do
-      user = ChildFactory.insert_user!()
+      user = ChildFactory.insert_user()
       params = ChildFactory.params_for_author(%{user: user})
 
       assert params.user_id == user.id

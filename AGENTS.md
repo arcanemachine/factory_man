@@ -77,12 +77,12 @@ For a factory named `:user` with `struct: User`:
 | --------------------------- | ----------- | -------------------------------- |
 | `build_user_params/0,1`     | `%{}`       | Plain map (for changesets, APIs)  |
 | `build_user_struct/0,1`     | `%User{}`   | Struct in memory (not persisted)  |
-| `insert_user!/1,2`          | `%User{}`   | Inserted into database            |
+| `insert_user/1,2`          | `%User{}`   | Inserted into database            |
 | `params_for_user/0,1`       | `%{}`       | Stripped params (no Ecto metadata)|
 | `string_params_for_user/0,1`| `%{"" => }` | Stripped params with string keys  |
 | `build_user_params_list/1,2`| `[%{}, ...]`| List of params maps               |
 | `build_user_struct_list/1,2`| `[%User{}]` | List of structs                   |
-| `insert_user_list!/1,2,3`   | `[%User{}]` | List of inserted records          |
+| `insert_user_list/1,2,3`   | `[%User{}]` | List of inserted records          |
 
 For a factory **without** `struct:` option, simplified names are used: `build_*/0,1` and
 `build_*_list/1,2` (no `_params` suffix).
@@ -98,7 +98,7 @@ build_user_params:
 build_user_struct (calls build_user_params internally):
   -> before_build_struct -> struct!() -> after_build_struct
 
-insert_user! (calls build_user_struct internally):
+insert_user (calls build_user_struct internally):
   -> before_insert -> Repo.insert!() -> after_insert
 ```
 
@@ -106,8 +106,8 @@ insert_user! (calls build_user_struct internally):
 
 - **Don't pass keyword lists as params to struct factories.** Struct factories expect maps: `%{key: value}`, never `[key: value]`
 - **Don't forget `Map.merge(base_params, params)`** at the end of every struct/map factory body
-- **Don't use `build_user()` or `insert_user!()`** for struct factories — the correct names include the type:
-  `build_user_struct()`, `build_user_params()`, `insert_user!()`. Non-struct factories use `build_*()` directly.
+- **Don't use `build_user()` for struct factories** — the correct names include the type:
+  `build_user_struct()`, `build_user_params()`, `insert_user()`. Non-struct factories use `build_*()` directly.
 - **Don't create structs in the factory body** (unless using `build_params?: false`). Return a plain map — the generated `build_*_struct` function handles struct conversion
 - **Don't define factories outside of modules that `use FactoryMan`**
 

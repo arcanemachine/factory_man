@@ -27,12 +27,12 @@ defmodule FactoryMan do
   | ---------------------------- | ---------------- | ---------------------------------- |
   | `build_user_params/0,1`      | `%{}`            | Plain map (for changesets, APIs)   |
   | `build_user_struct/0,1`      | `%User{}`        | Struct in memory (not persisted)   |
-  | `insert_user!/0,1`           | `%User{}`        | Inserted into database             |
+  | `insert_user/0,1`            | `%User{}`        | Inserted into database             |
   | `params_for_user/0,1`        | `%{}`            | Stripped params (no Ecto metadata) |
   | `string_params_for_user/0,1` | `%{"" => ...}`   | Stripped params with string keys   |
   | `build_user_params_list/1,2` | `[%{}, ...]`     | List of params maps                |
   | `build_user_struct_list/1,2` | `[%User{}, ...]` | List of structs                    |
-  | `insert_user_list!/1,2`      | `[%User{}, ...]` | List of inserted records           |
+  | `insert_user_list/1,2`       | `[%User{}, ...]` | List of inserted records           |
 
   All functions accept optional params for customization. Insert functions also accept repo
   options. Each item in a list is evaluated independently (unique timestamps, sequences, etc.).
@@ -76,7 +76,7 @@ defmodule FactoryMan do
   The `struct:` option controls both what functions are generated and how they're named:
 
   ```elixir
-  # Struct factory — generates build_user_params, build_user_struct, insert_user!, etc.
+  # Struct factory — generates build_user_params, build_user_struct, insert_user, etc.
   deffactory user(params \\\\ %{}), struct: User do
     base_params = %{username: "user-\#{System.os_time()}"}
     Map.merge(base_params, params)
@@ -88,10 +88,10 @@ defmodule FactoryMan do
   end
   ```
 
-  | Factory type                  | Generated functions                      |
-  | ----------------------------- | ---------------------------------------- |
-  | `struct: User` (`:user`)      | `build_user_params`, `build_user_struct`, `insert_user!`, etc. |
-  | No `struct:` (`:api_payload`) | `build_api_payload`, `build_api_payload_list` |
+  | Factory type                  | Generated functions                                           |
+  | ----------------------------- | ------------------------------------------------------------- |
+  | `struct: User` (`:user`)      | `build_user_params`, `build_user_struct`, `insert_user`, etc. |
+  | No `struct:` (`:api_payload`) | `build_api_payload`, `build_api_payload_list`                 |
 
   Non-struct factories use simplified names (`build_*` instead of `build_*_params`) because
   they can return any value — maps, strings, keyword lists, tuples, nil, etc.:
@@ -192,7 +192,7 @@ defmodule FactoryMan do
   ```elixir
   sequence("user")                                          # "user0", "user1", ...
   sequence(:email, fn n -> "user\#{n}@example.com" end)     # custom formatter
-  sequence(:role, ["admin", "moderator", "user"])            # cycles through list
+  sequence(:role, ["admin", "moderator", "user"])           # cycles through list
   sequence(:order, fn n -> "ORD-\#{n}" end, start_at: 1000) # custom start value
   ```
 
@@ -207,7 +207,7 @@ defmodule FactoryMan do
   # In maps
   %{
     created_at: fn -> DateTime.utc_now() end,               # 0-arity: called with no args
-    display_name: fn user -> "\#{user.username} (User)" end  # 1-arity: receives parent map
+    display_name: fn user -> "\#{user.username} (User)" end # 1-arity: receives parent map
   }
 
   # In keyword lists
@@ -228,7 +228,7 @@ defmodule FactoryMan do
 
   ### Hook Pipeline
 
-  Each generated function uses a subset of the pipeline. The full flow for `insert_user!` is:
+  Each generated function uses a subset of the pipeline. The full flow for `insert_user` is:
 
   ```text
   build_user_params:
@@ -237,7 +237,7 @@ defmodule FactoryMan do
   build_user_struct (calls build_user_params internally):
     → before_build_struct → struct!() → after_build_struct
 
-  insert_user! (calls build_user_struct internally):
+  insert_user (calls build_user_struct internally):
     → before_insert → Repo.insert!() → after_insert
   ```
 
@@ -328,7 +328,7 @@ defmodule FactoryMan do
     customer =
       case params[:customer] do
         %Customer{} = customer -> customer
-        _ -> MyApp.Factory.Accounts.insert_customer!()
+        _ -> MyApp.Factory.Accounts.insert_customer()
       end
 
     %Invoice{
@@ -338,7 +338,7 @@ defmodule FactoryMan do
   end
   ```
 
-  This generates `build_invoice_struct/0,1`, `insert_invoice!/0,1,2`, and list variants, but
+  This generates `build_invoice_struct/0,1`, `insert_invoice/0,1,2`, and list variants, but
   **not** `build_invoice_params`. The `after_build_struct`, `before_insert`, and `after_insert`
   hooks still run. The `before_build_params`, `after_build_params`, and `before_build_struct`
   hooks are skipped since there is no params-to-struct conversion stage.
@@ -382,7 +382,7 @@ defmodule FactoryMan do
   the base factory because the caller's params override the variant defaults.
 
   Generated functions follow the pattern `{variant}_{base}`:
-  `build_admin_user_params/0,1`, `build_admin_user_struct/0,1`, `insert_admin_user!/0,1,2`,
+  `build_admin_user_params/0,1`, `build_admin_user_struct/0,1`, `insert_admin_user/0,1,2`,
   plus list variants.
 
   ### Custom naming with `:as`
@@ -397,7 +397,7 @@ defmodule FactoryMan do
   end
   ```
 
-  This generates `build_mod_struct/0,1`, `insert_mod!/0,1,2`, etc.
+  This generates `build_mod_struct/0,1`, `insert_mod/0,1,2`, etc.
   — instead of the default `build_moderator_user_struct`.
 
   ## Duplicate Option Warnings
@@ -493,12 +493,12 @@ defmodule FactoryMan do
 
   - `build_user_params/1` - Returns plain params
   - `build_user_struct/1` - Returns an unsaved struct
-  - `insert_user!/1` - Inserts into the database (when repo is configured)
+  - `insert_user/1` - Inserts into the database (when repo is configured)
   - `params_for_user/1` - Stripped params map (when struct is an Ecto schema)
   - `string_params_for_user/1` - Stripped params with string keys (when struct is an Ecto schema)
   - `build_user_params_list/2` - Builds multiple items
   - `build_user_struct_list/2` - Builds multiple structs
-  - `insert_user_list!/2` - Inserts multiple items (when repo is configured)
+  - `insert_user_list/2` - Inserts multiple items (when repo is configured)
 
   For a factory named `greeting` without `struct:`, simplified names are used:
 
@@ -519,7 +519,7 @@ defmodule FactoryMan do
       iex> MyApp.Factory.build_user_params(%{username: "alice"})
       %{username: "alice", email: "user0@example.com"}
 
-      iex> MyApp.Factory.insert_user!(%{role: "admin"})
+      iex> MyApp.Factory.insert_user(%{role: "admin"})
       %User{id: 1, username: "user1", email: "admin@example.com", role: "admin"}
 
   """
@@ -697,24 +697,24 @@ defmodule FactoryMan do
         if is_insertable_ecto_schema_factory? and insert? != false do
           # Generate struct insert functions
           # Head declaration (simple variable with default if present)
-          def unquote({:"insert_#{factory_name}!", [], [head_ast]})
+          def unquote({:"insert_#{factory_name}", [], [head_ast]})
 
           # Only generate convenience function if there's no pattern match without default
           # Pattern matches require specific keys, so we can't call with %{}
           if not has_pattern_match do
-            def unquote(:"insert_#{factory_name}!")(repo_insert_opts)
+            def unquote(:"insert_#{factory_name}")(repo_insert_opts)
                 when is_list(repo_insert_opts) do
-              unquote(:"insert_#{factory_name}!")(%{}, repo_insert_opts)
+              unquote(:"insert_#{factory_name}")(%{}, repo_insert_opts)
             end
           end
 
           # Implementation - uses plain_var_ast since pattern match variables
           # are only needed in the params builder body
-          def unquote(:"insert_#{factory_name}!")(unquote(plain_var_ast)) do
-            unquote(:"insert_#{factory_name}!")(unquote(user_var), [])
+          def unquote(:"insert_#{factory_name}")(unquote(plain_var_ast)) do
+            unquote(:"insert_#{factory_name}")(unquote(user_var), [])
           end
 
-          def unquote(:"insert_#{factory_name}!")(
+          def unquote(:"insert_#{factory_name}")(
                 unquote(plain_var_ast),
                 repo_insert_opts
               )
@@ -729,27 +729,27 @@ defmodule FactoryMan do
           # Generate struct insert list functions
           # Only generate convenience functions if there's no pattern match without default
           if not has_pattern_match do
-            def unquote(:"insert_#{factory_name}_list!")(count)
+            def unquote(:"insert_#{factory_name}_list")(count)
                 when is_integer(count) and count >= 0 do
-              unquote(:"insert_#{factory_name}_list!")(count, %{}, [])
+              unquote(:"insert_#{factory_name}_list")(count, %{}, [])
             end
 
-            def unquote(:"insert_#{factory_name}_list!")(count, repo_insert_opts)
+            def unquote(:"insert_#{factory_name}_list")(count, repo_insert_opts)
                 when is_integer(count) and count >= 0 and is_list(repo_insert_opts) do
-              unquote(:"insert_#{factory_name}_list!")(count, %{}, repo_insert_opts)
+              unquote(:"insert_#{factory_name}_list")(count, %{}, repo_insert_opts)
             end
           end
 
-          def unquote(:"insert_#{factory_name}_list!")(count, params)
+          def unquote(:"insert_#{factory_name}_list")(count, params)
               when is_integer(count) and count >= 0 and is_map(params) do
-            unquote(:"insert_#{factory_name}_list!")(count, params, [])
+            unquote(:"insert_#{factory_name}_list")(count, params, [])
           end
 
-          def unquote(:"insert_#{factory_name}_list!")(count, params, repo_insert_opts)
+          def unquote(:"insert_#{factory_name}_list")(count, params, repo_insert_opts)
               when is_integer(count) and count >= 0 and is_map(params) and
                      is_list(repo_insert_opts) do
             Stream.repeatedly(fn ->
-              unquote(:"insert_#{factory_name}!")(params, repo_insert_opts)
+              unquote(:"insert_#{factory_name}")(params, repo_insert_opts)
             end)
             |> Enum.take(count)
           end
@@ -781,7 +781,7 @@ defmodule FactoryMan do
         Map.merge(base_params, params)
       end
 
-      # Generated: build_admin_user_struct/0,1, insert_admin_user!/0,1,2, etc.
+      # Generated: build_admin_user_struct/0,1, insert_admin_user/0,1,2, etc.
       # Calling build_admin_user_struct() is equivalent to:
       #   build_user_struct(%{role: "admin"})
 
@@ -938,42 +938,42 @@ defmodule FactoryMan do
 
         if is_insertable_ecto_schema_factory? and insert? != false do
           # Head declaration
-          def unquote({:"insert_#{full_name}!", [], [head_ast]})
+          def unquote({:"insert_#{full_name}", [], [head_ast]})
 
           if not has_pattern_match do
-            def unquote(:"insert_#{full_name}!")(repo_insert_opts)
+            def unquote(:"insert_#{full_name}")(repo_insert_opts)
                 when is_list(repo_insert_opts) do
-              unquote(:"insert_#{full_name}!")(%{}, repo_insert_opts)
+              unquote(:"insert_#{full_name}")(%{}, repo_insert_opts)
             end
           end
 
-          def unquote(:"insert_#{full_name}!")(unquote(plain_var_ast)) do
-            unquote(:"insert_#{full_name}!")(unquote(user_var), [])
+          def unquote(:"insert_#{full_name}")(unquote(plain_var_ast)) do
+            unquote(:"insert_#{full_name}")(unquote(user_var), [])
           end
 
-          def unquote(:"insert_#{full_name}!")(
+          def unquote(:"insert_#{full_name}")(
                 unquote(arg_ast_no_default),
                 repo_insert_opts
               )
               when is_list(repo_insert_opts) do
             # Transform params via variant body, then delegate to base insert
             unquote(block)
-            |> unquote(:"insert_#{base_factory_name}!")(repo_insert_opts)
+            |> unquote(:"insert_#{base_factory_name}")(repo_insert_opts)
           end
 
           # List insert variants
           if not has_pattern_match do
-            def unquote(:"insert_#{full_name}_list!")(count)
+            def unquote(:"insert_#{full_name}_list")(count)
                 when is_integer(count) and count >= 0 do
-              unquote(:"insert_#{full_name}_list!")(count, %{}, [])
+              unquote(:"insert_#{full_name}_list")(count, %{}, [])
             end
 
-            def unquote(:"insert_#{full_name}_list!")(
+            def unquote(:"insert_#{full_name}_list")(
                   count,
                   repo_insert_opts
                 )
                 when is_integer(count) and count >= 0 and is_list(repo_insert_opts) do
-              unquote(:"insert_#{full_name}_list!")(
+              unquote(:"insert_#{full_name}_list")(
                 count,
                 %{},
                 repo_insert_opts
@@ -981,12 +981,12 @@ defmodule FactoryMan do
             end
           end
 
-          def unquote(:"insert_#{full_name}_list!")(count, params)
+          def unquote(:"insert_#{full_name}_list")(count, params)
               when is_integer(count) and count >= 0 and is_map(params) do
-            unquote(:"insert_#{full_name}_list!")(count, params, [])
+            unquote(:"insert_#{full_name}_list")(count, params, [])
           end
 
-          def unquote(:"insert_#{full_name}_list!")(
+          def unquote(:"insert_#{full_name}_list")(
                 count,
                 params,
                 repo_insert_opts
@@ -994,7 +994,7 @@ defmodule FactoryMan do
               when is_integer(count) and count >= 0 and is_map(params) and
                      is_list(repo_insert_opts) do
             Stream.repeatedly(fn ->
-              unquote(:"insert_#{full_name}!")(params, repo_insert_opts)
+              unquote(:"insert_#{full_name}")(params, repo_insert_opts)
             end)
             |> Enum.take(count)
           end
