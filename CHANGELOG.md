@@ -52,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   argument has no default no longer get the 1-arity list convenience.
 - Duplicate option warnings are now emitted with `IO.warn` instead of `Logger.warning`, so they
   carry file/line attribution and are caught by `--warnings-as-errors`.
+- Test suite cleanup: removed tests made redundant by the params unification, retitled the
+  stale "params_for" section, and added coverage for `build_*_string_params_list`, embedded
+  schema params, and inherited `after_insert` hooks running on child-module inserts.
 - Documentation restructured: the README is now a short onboarding tour (installation, quick
   tour, how it works, which function to use, project structure), and the `FactoryMan` moduledoc
   is the full reference — ending the near-total duplication between the two. Hooks and variants

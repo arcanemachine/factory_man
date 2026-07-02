@@ -5,33 +5,6 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
   alias FactoryManDemo.Authors.Author
   alias FactoryManDemo.Users.User
 
-  # ── build_*_params ───────────────────────────────────────────────
-
-  describe "build_*_params" do
-    test "returns a plain map with default values" do
-      params = ChildFactory.build_user_params()
-
-      assert is_map(params)
-      refute Map.has_key?(params, :__struct__)
-      assert is_binary(params.username)
-    end
-
-    test "caller params override defaults" do
-      params = ChildFactory.build_user_params(%{username: "alice"})
-
-      assert params.username == "alice"
-    end
-
-    test "non-struct factory returns a plain map" do
-      params = ChildFactory.build_non_struct()
-
-      assert is_map(params)
-      refute Map.has_key?(params, :__struct__)
-      assert is_binary(params.name)
-      assert is_integer(params.age)
-    end
-  end
-
   # ── build_*_struct ───────────────────────────────────────────────
 
   describe "build_*_struct" do
@@ -94,6 +67,14 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       user2 = ChildFactory.insert_user()
 
       assert user1.id != user2.id
+    end
+
+    test "module-level after_insert hook inherited via extends runs on insert" do
+      author = ChildFactory.insert_author()
+
+      # The parent module's (FactoryManDemo.Factory) after_insert hook resets
+      # associations, so the built user struct is replaced with NotLoaded
+      assert %Ecto.Association.NotLoaded{} = author.user
     end
   end
 
@@ -718,6 +699,15 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
   # ── Value factories (arbitrary return types) ─────────────────────
 
   describe "value factories" do
+    test "returns a plain map" do
+      params = ChildFactory.build_non_struct()
+
+      assert is_map(params)
+      refute Map.has_key?(params, :__struct__)
+      assert is_binary(params.name)
+      assert is_integer(params.age)
+    end
+
     test "returns a string" do
       assert ChildFactory.build_greeting() == "Hello, world!"
     end
@@ -806,7 +796,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
   end
 
-  # ── params_for / string_params_for ───────────────────────────────
+  # ── build_*_params / build_*_string_params ───────────────────────
 
   describe "build_*_params (derived from struct)" do
     test "returns a plain map without __struct__ or __meta__" do
@@ -862,13 +852,22 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert is_binary(params.username)
     end
 
-    test "not generated for non-Ecto factories" do
-      refute function_exported?(ChildFactory, :params_for_non_struct, 0)
-    end
-
     test "non-struct factories use build_* (no _params suffix)" do
       assert function_exported?(ChildFactory, :build_non_struct, 0)
       refute function_exported?(ChildFactory, :build_non_struct_params, 0)
+    end
+
+    test "embedded schemas get params functions" do
+      params = ChildFactory.build_embedded_schema_params()
+
+      refute Map.has_key?(params, :__struct__)
+      assert params.some_field == "some value"
+    end
+
+    test "caller params override defaults" do
+      params = ChildFactory.build_user_params(%{username: "alice"})
+
+      assert params.username == "alice"
     end
   end
 
@@ -896,6 +895,21 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       params = ChildFactory.build_admin_user_string_params()
 
       assert Map.has_key?(params, "username")
+    end
+
+    test "list builder returns a string-keyed map per item, evaluated independently" do
+      params_list = ChildFactory.build_user_string_params_list(2)
+
+      assert length(params_list) == 2
+      assert Enum.all?(params_list, &Map.has_key?(&1, "username"))
+      usernames = Enum.map(params_list, & &1["username"])
+      assert length(Enum.uniq(usernames)) == 2
+    end
+
+    test "list builder applies caller params to each item" do
+      params_list = ChildFactory.build_user_string_params_list(2, %{username: "same"})
+
+      assert Enum.all?(params_list, &(&1["username"] == "same"))
     end
   end
 
