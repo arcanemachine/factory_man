@@ -40,9 +40,12 @@ defmodule FactoryMan.Codegen do
   default.
   """
   def value_list_fns(build_fn, build_list_fn, projections) do
+    doc = "Builds `count` items, each built independently by `#{build_fn}/1`."
+
     convenience =
       if projections.has_default do
         quote do
+          @doc unquote(doc)
           def unquote(build_list_fn)(count)
               when is_integer(count) and count >= 0 do
             Stream.repeatedly(fn -> unquote(build_fn)() end)
@@ -53,6 +56,7 @@ defmodule FactoryMan.Codegen do
 
     implementation =
       quote do
+        @doc unquote(doc)
         def unquote(build_list_fn)(count, params)
             when is_integer(count) and count >= 0 do
           Stream.repeatedly(fn -> unquote(build_fn)(params) end)
@@ -70,9 +74,12 @@ defmodule FactoryMan.Codegen do
   required keys (calling with `%{}` would not match).
   """
   def map_list_fns(build_fn, build_list_fn, projections) do
+    doc = "Builds `count` items, each built independently by `#{build_fn}/1`."
+
     convenience =
       if not projections.has_pattern_match do
         quote do
+          @doc unquote(doc)
           def unquote(build_list_fn)(count)
               when is_integer(count) and count >= 0 do
             unquote(build_list_fn)(count, %{})
@@ -82,6 +89,7 @@ defmodule FactoryMan.Codegen do
 
     implementation =
       quote do
+        @doc unquote(doc)
         def unquote(build_list_fn)(count, params)
             when is_integer(count) and count >= 0 and is_map(params) do
           Stream.repeatedly(fn -> unquote(build_fn)(params) end)
@@ -106,14 +114,21 @@ defmodule FactoryMan.Codegen do
     {strip_mod, strip_fun} =
       if ecto_schema?, do: {FactoryMan.Params, :strip}, else: {Map, :from_struct}
 
+    params_doc =
+      "Builds a struct via `#{build_struct_fn}/1` and converts it to a clean params map."
+
+    string_params_doc = "Like `#{params_fn}/1`, but with string keys."
+
     zero_arity =
       if projections.has_default do
         quote do
+          @doc unquote(params_doc)
           def unquote(params_fn)() do
             unquote(build_struct_fn)()
             |> unquote(strip_mod).unquote(strip_fun)()
           end
 
+          @doc unquote(string_params_doc)
           def unquote(string_params_fn)() do
             unquote(params_fn)()
             |> FactoryMan.Params.stringify_keys()
@@ -123,12 +138,14 @@ defmodule FactoryMan.Codegen do
 
     one_arity =
       quote do
+        @doc unquote(params_doc)
         def unquote(params_fn)(unquote(projections.plain_var)) do
           unquote(projections.user_var)
           |> unquote(build_struct_fn)()
           |> unquote(strip_mod).unquote(strip_fun)()
         end
 
+        @doc unquote(string_params_doc)
         def unquote(string_params_fn)(unquote(projections.plain_var)) do
           unquote(params_fn)(unquote(projections.user_var))
           |> FactoryMan.Params.stringify_keys()
@@ -151,6 +168,7 @@ defmodule FactoryMan.Codegen do
   def insert_convenience_fns(insert_fn, projections) do
     head =
       quote do
+        @doc "Builds the corresponding struct and inserts it into the database."
         def unquote(insert_fn)(unquote(projections.head_ast))
       end
 
@@ -179,14 +197,18 @@ defmodule FactoryMan.Codegen do
   `insert_*_list` functions. Each item delegates to `insert_<name>/2`.
   """
   def insert_list_fns(insert_fn, insert_list_fn, projections) do
+    doc = "Inserts `count` records, each built and inserted independently by `#{insert_fn}/2`."
+
     conveniences =
       if not projections.has_pattern_match do
         quote do
+          @doc unquote(doc)
           def unquote(insert_list_fn)(count)
               when is_integer(count) and count >= 0 do
             unquote(insert_list_fn)(count, %{}, [])
           end
 
+          @doc unquote(doc)
           def unquote(insert_list_fn)(count, repo_insert_opts)
               when is_integer(count) and count >= 0 and is_list(repo_insert_opts) do
             unquote(insert_list_fn)(count, %{}, repo_insert_opts)
@@ -201,6 +223,7 @@ defmodule FactoryMan.Codegen do
           unquote(insert_list_fn)(count, params, [])
         end
 
+        @doc unquote(doc)
         def unquote(insert_list_fn)(count, params, repo_insert_opts)
             when is_integer(count) and count >= 0 and is_map(params) and
                    is_list(repo_insert_opts) do

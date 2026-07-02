@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Generated factory functions now carry `@doc` attributes, so they show up documented in
+  HexDocs, IEx `h/1`, and editor tooltips instead of appearing undocumented.
 - Variants are now registered under their full name, so a variant can itself be used as the
   base of another variant (e.g. `defvariant senior(params \\ %{}), for: :admin_user`).
   Previously this raised "base factory not found" at compile time.

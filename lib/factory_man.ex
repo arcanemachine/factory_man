@@ -702,6 +702,7 @@ defmodule FactoryMan do
         build_fn = :"build_#{factory_name}"
 
         # Head declaration (simple variable with default if present)
+        @doc "Builds a value from the `:#{factory_name}` factory."
         def unquote({build_fn, [], [head_ast]})
 
         # Implementation (with pattern matching if needed, no default)
@@ -725,6 +726,7 @@ defmodule FactoryMan do
         build_struct_fn = :"build_#{factory_name}_struct"
 
         # Head declaration (simple variable with default if present)
+        @doc "Builds a `#{inspect(merged_opts[:struct])}` struct from the `:#{factory_name}` factory (in memory, not persisted)."
         def unquote({build_struct_fn, [], [head_ast]})
 
         if body == :params do
@@ -787,6 +789,7 @@ defmodule FactoryMan do
 
           # Implementation - uses plain_var_ast since pattern match variables
           # are only needed in the params builder body
+          @doc "Builds the corresponding struct and inserts it. `repo_insert_opts` are passed to the repo's `insert!/2`."
           def unquote(insert_fn)(unquote(plain_var_ast), repo_insert_opts)
               when is_list(repo_insert_opts) do
             unquote(user_var)
@@ -901,6 +904,7 @@ defmodule FactoryMan do
         build_fn = :"build_#{full_name}"
         base_build_fn = :"build_#{base_factory_name}"
 
+        @doc "Builds a value from the `:#{variant_name}` variant of the `:#{base_factory_name}` factory."
         def unquote({build_fn, [], [head_ast]})
 
         def unquote({build_fn, [], [arg_ast_no_default]}) do
@@ -919,6 +923,7 @@ defmodule FactoryMan do
       if base_opts[:struct] != nil do
         build_struct_fn = :"build_#{full_name}_struct"
 
+        @doc "Builds a `#{inspect(base_opts[:struct])}` struct from the `:#{variant_name}` variant of the `:#{base_factory_name}` factory (in memory, not persisted)."
         def unquote({build_struct_fn, [], [head_ast]})
 
         def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
@@ -963,6 +968,7 @@ defmodule FactoryMan do
           )
 
           # Transform params via variant body, then delegate to base insert
+          @doc "Builds the corresponding struct and inserts it. `repo_insert_opts` are passed to the repo's `insert!/2`."
           def unquote(insert_fn)(unquote(arg_ast_no_default), repo_insert_opts)
               when is_list(repo_insert_opts) do
             unquote(block)
