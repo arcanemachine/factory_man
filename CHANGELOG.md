@@ -15,6 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `params_for_*` and `string_params_for_*` are renamed to `build_*_params` and
+  `build_*_string_params`, replacing the former raw params builders. For struct factories,
+  `build_*_params` now builds the struct and converts it to a clean map (Ecto metadata stripped
+  for schemas, `Map.from_struct/1` for plain structs) instead of returning the factory body's
+  raw output. The raw params stage still exists inside `build_*_struct` (hooks and lazy
+  evaluation are unchanged) but is no longer a public function. Consequences:
+  - Factory bodies of struct factories must return only struct fields (always passed through
+    `struct!/2` now).
+  - `build_params?: false` factories now also get `build_*_params` (derived from the struct).
+  - `build_*_string_params_list` variants are generated (previously `string_params_for_*` had
+    no list variant).
+  - Non-struct factories are unchanged (`build_*` still returns the body's value verbatim).
+- **Breaking:** The `build_struct?` option is removed and now raises a compile-time
+  `ArgumentError`. Params functions are derived from the built struct, so "params-only" struct
+  factories are no longer expressible — omit the `:struct` option instead.
 - **Breaking:** The debug functions `_factory_opts/0` and `_<name>_factory_opts/0` are replaced
   by a single reflection function following the Elixir dunder convention (like `__schema__`):
   `__factory_man__(:opts)` for module options and `__factory_man__(:opts, factory_name)` for a

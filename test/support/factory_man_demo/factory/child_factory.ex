@@ -183,7 +183,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
   end
 
   # Pattern match without default — requires specific keys
-  deffactory no_default_fallback(%{username: username} = params), struct: User do
+  deffactory no_default_fallback(%{username: username} = params) do
     base_params = %{name: params[:name] || username}
 
     Map.merge(base_params, params)
@@ -201,7 +201,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
   end
 
   # Nested destructuring
-  deffactory nested_pattern(%{author: %{name: name}} = params), struct: User do
+  deffactory nested_pattern(%{author: %{name: name}} = params) do
     base_params = %{
       username: "author-#{String.downcase(name)}"
     }
@@ -210,7 +210,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
   end
 
   # Deep nested destructuring
-  deffactory deep_nested(%{config: %{nested: %{value: val}}} = params), struct: User do
+  deffactory deep_nested(%{config: %{nested: %{value: val}}} = params) do
     base_params = %{
       username: "deep-#{val}"
     }

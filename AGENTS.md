@@ -16,7 +16,7 @@ lib/
   factory_man.ex              # Main module — core macro system
   factory_man/
     codegen.ex                # Shared codegen templates for deffactory/defvariant
-    params.ex                 # Ecto struct -> clean params map (params_for_*)
+    params.ex                 # Ecto struct -> clean params map (build_*_params)
     sequence.ex               # Sequence generation (Agent-based counter)
 
 test/
@@ -63,8 +63,10 @@ end
 ```
 
 Key rules:
-- With `struct:`, the factory body must return a **map** (not a struct), unless using `build_params?: false`
-- With `build_params?: false`, the body returns a **struct** directly (skips params builder + `struct!()`)
+- With `struct:`, the factory body must return a **map** (not a struct) containing only the
+  struct's fields, unless using `build_params?: false`
+- With `build_params?: false`, the body returns a **struct** directly (skips `struct!()`);
+  params functions are still generated, derived from the struct
 - `build_params?: false` is ignored for non-struct factories — their `build_*` functions are always generated
 - Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
 - You must merge `params` yourself — FactoryMan does not auto-merge
@@ -75,16 +77,16 @@ Key rules:
 
 For a factory named `:user` with `struct: User`:
 
-| Function                    | Returns     | Purpose                          |
-| --------------------------- | ----------- | -------------------------------- |
-| `build_user_params/0,1`     | `%{}`       | Plain map (for changesets, APIs)  |
-| `build_user_struct/0,1`     | `%User{}`   | Struct in memory (not persisted)  |
-| `insert_user/0,1,2`         | `%User{}`   | Inserted into database            |
-| `params_for_user/0,1`       | `%{}`       | Stripped params (no Ecto metadata)|
-| `string_params_for_user/0,1`| `%{"" => }` | Stripped params with string keys  |
-| `build_user_params_list/1,2`| `[%{}, ...]`| List of params maps               |
-| `build_user_struct_list/1,2`| `[%User{}]` | List of structs                   |
-| `insert_user_list/1,2,3`    | `[%User{}]` | List of inserted records          |
+| Function                            | Returns     | Purpose                              |
+| ----------------------------------- | ----------- | ------------------------------------ |
+| `build_user_struct/0,1`             | `%User{}`   | Struct in memory (not persisted)     |
+| `build_user_params/0,1`             | `%{}`       | Clean params map derived from struct |
+| `build_user_string_params/0,1`      | `%{"" => }` | Same, with string keys               |
+| `insert_user/0,1,2`                 | `%User{}`   | Inserted into database               |
+| `build_user_struct_list/1,2`        | `[%User{}]` | List of structs                      |
+| `build_user_params_list/1,2`        | `[%{}, ...]`| List of params maps                  |
+| `build_user_string_params_list/1,2` | `[%{}, ...]`| List of string-keyed params maps     |
+| `insert_user_list/1,2,3`            | `[%User{}]` | List of inserted records             |
 
 For a factory **without** `struct:` option, simplified names are used: `build_*/0,1` and
 `build_*_list/1,2` (no `_params` suffix).
@@ -94,11 +96,12 @@ For **embedded schemas**, `insert_*` functions are automatically skipped.
 ### Hook Pipeline
 
 ```
-build_user_params:
+build_user_struct:
   before_build_params -> [factory body + lazy eval] -> after_build_params
-
-build_user_struct (calls build_user_params internally):
   -> before_build_struct -> struct!() -> after_build_struct
+
+build_user_params (calls build_user_struct internally):
+  -> strip Ecto metadata (Map.from_struct/1 for plain structs)
 
 insert_user (calls build_user_struct internally):
   -> before_insert -> Repo.insert!() -> after_insert

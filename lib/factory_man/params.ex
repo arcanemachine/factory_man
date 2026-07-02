@@ -2,8 +2,8 @@ defmodule FactoryMan.Params do
   @moduledoc """
   Utilities for converting Ecto structs to clean param maps.
 
-  These functions are used by the generated `params_for_*` and `string_params_for_*` factory
-  functions. You generally don't need to call them directly.
+  These functions are used by the generated `build_*_params` and `build_*_string_params`
+  factory functions. You generally don't need to call them directly.
   """
 
   @doc """

@@ -93,24 +93,29 @@ defmodule FactoryMan.Codegen do
   end
 
   @doc """
-  `params_for_*` and `string_params_for_*` functions for Ecto schema factories. They build a
-  struct via `build_<name>_struct` and strip Ecto metadata.
+  `build_*_params` and `build_*_string_params` functions for struct factories, plus their
+  `_list` variants. They build a struct via `build_<name>_struct` and convert it to a clean
+  params map — stripping Ecto metadata for Ecto schemas, or `Map.from_struct/1` for plain
+  structs.
   """
-  def params_for_fns(full_name, projections) do
+  def params_fns(full_name, projections, ecto_schema?) do
     build_struct_fn = :"build_#{full_name}_struct"
-    params_for_fn = :"params_for_#{full_name}"
-    string_params_for_fn = :"string_params_for_#{full_name}"
+    params_fn = :"build_#{full_name}_params"
+    string_params_fn = :"build_#{full_name}_string_params"
+
+    {strip_mod, strip_fun} =
+      if ecto_schema?, do: {FactoryMan.Params, :strip}, else: {Map, :from_struct}
 
     zero_arity =
       if projections.has_default do
         quote do
-          def unquote(params_for_fn)() do
+          def unquote(params_fn)() do
             unquote(build_struct_fn)()
-            |> FactoryMan.Params.strip()
+            |> unquote(strip_mod).unquote(strip_fun)()
           end
 
-          def unquote(string_params_for_fn)() do
-            unquote(params_for_fn)()
+          def unquote(string_params_fn)() do
+            unquote(params_fn)()
             |> FactoryMan.Params.stringify_keys()
           end
         end
@@ -118,19 +123,24 @@ defmodule FactoryMan.Codegen do
 
     one_arity =
       quote do
-        def unquote(params_for_fn)(unquote(projections.plain_var)) do
+        def unquote(params_fn)(unquote(projections.plain_var)) do
           unquote(projections.user_var)
           |> unquote(build_struct_fn)()
-          |> FactoryMan.Params.strip()
+          |> unquote(strip_mod).unquote(strip_fun)()
         end
 
-        def unquote(string_params_for_fn)(unquote(projections.plain_var)) do
-          unquote(params_for_fn)(unquote(projections.user_var))
+        def unquote(string_params_fn)(unquote(projections.plain_var)) do
+          unquote(params_fn)(unquote(projections.user_var))
           |> FactoryMan.Params.stringify_keys()
         end
       end
 
-    block([zero_arity, one_arity])
+    block([
+      zero_arity,
+      one_arity,
+      map_list_fns(params_fn, :"#{params_fn}_list", projections),
+      map_list_fns(string_params_fn, :"#{string_params_fn}_list", projections)
+    ])
   end
 
   @doc """
