@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Helper functions are now actually inherited via `extends:`, as documented. Child factory
+  modules import all public functions from the full ancestor chain, so helpers like
+  `generate_username()` can be called unqualified. Previously this only worked with explicit
+  qualification (e.g. `MyApp.Factory.generate_username()`) despite the documentation showing
+  otherwise. Note: a child module that defines a factory with the same name as one in a parent
+  module will now get a compile-time import conflict error.
+
 ## [0.5.0] - 2026-06-15
 
 ### Changed

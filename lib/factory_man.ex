@@ -428,7 +428,16 @@ defmodule FactoryMan do
   @duplicate_warning_skip_keys [:extends, :suppress_duplicate_option_warning]
 
   defmacro __using__(opts \\ []) do
+    parent_imports =
+      for parent <- extends_chain(opts, __CALLER__) do
+        quote do
+          import unquote(parent), except: [_factory_opts: 0]
+        end
+      end
+
     quote do
+      unquote_splicing(parent_imports)
+
       import unquote(__MODULE__),
         only: [deffactory: 2, deffactory: 3, defvariant: 3]
 
@@ -467,6 +476,27 @@ defmodule FactoryMan do
       module.
       """
       def _factory_opts, do: @parent_factory_opts
+    end
+  end
+
+  # Resolves the full ancestor chain ([parent, grandparent, ...]) for `:extends` at compile time.
+  # Each ancestor is imported so its helper functions are callable unqualified in the child,
+  # matching option inheritance. Imports are not transitive, so the whole chain is needed.
+  defp extends_chain(opts, env) when is_list(opts) do
+    case Keyword.get(opts, :extends) do
+      nil -> []
+      parent_ast -> parent_ast |> Macro.expand(env) |> ancestor_chain()
+    end
+  end
+
+  defp extends_chain(_opts, _env), do: []
+
+  defp ancestor_chain(module) do
+    with {:module, _} <- Code.ensure_compiled(module),
+         parent when parent != nil <- module.__info__(:attributes)[:parent_factory_opts][:extends] do
+      [module | ancestor_chain(parent)]
+    else
+      _ -> [module]
     end
   end
 
