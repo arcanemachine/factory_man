@@ -411,13 +411,13 @@ defmodule FactoryMan do
 
   ## Debugging
 
-  FactoryMan generates debug functions showing configured options:
+  Every factory module gets a `__factory_man__/1,2` reflection function showing resolved options:
 
   ```elixir
-  iex> MyApp.Factory._factory_opts()
+  iex> MyApp.Factory.__factory_man__(:opts)
   [repo: MyApp.Repo]
 
-  iex> MyApp.Factories.Users._user_factory_opts()
+  iex> MyApp.Factories.Users.__factory_man__(:opts, :user)
   [repo: MyApp.Repo, struct: User]
   ```
   """
@@ -429,7 +429,7 @@ defmodule FactoryMan do
     parent_imports =
       for parent <- extends_chain(opts, __CALLER__) do
         quote do
-          import unquote(parent), except: [_factory_opts: 0]
+          import unquote(parent), except: [__factory_man__: 1, __factory_man__: 2]
         end
       end
 
@@ -470,11 +470,26 @@ defmodule FactoryMan do
         parent_factory_opts |> Keyword.delete(:suppress_duplicate_option_warning)
       )
 
+      @before_compile FactoryMan
+    end
+  end
+
+  @doc false
+  defmacro __before_compile__(_env) do
+    # `unquote: false` defers the inner unquote fragments so they run in the using module's
+    # compile context, where the comprehension variables are bound.
+    quote unquote: false do
       @doc """
-      A debug helper function that shows all the options for the `#{inspect(__MODULE__)}` factory
-      module.
+      FactoryMan reflection.
+
+      - `__factory_man__(:opts)` — the resolved options for this factory module
+      - `__factory_man__(:opts, factory_name)` — the merged options for one factory or variant
       """
-      def _factory_opts, do: @parent_factory_opts
+      def __factory_man__(:opts), do: @parent_factory_opts
+
+      for {factory_man_name, factory_man_opts} <- @factory_man_registry do
+        def __factory_man__(:opts, unquote(factory_man_name)), do: unquote(factory_man_opts)
+      end
     end
   end
 
@@ -589,9 +604,6 @@ defmodule FactoryMan do
       )
 
       merged_opts = FactoryMan._merge_opts(parent_factory_opts, opts)
-
-      @doc "A debug helper function that shows all options for the `#{factory_name}` factory."
-      def unquote(String.to_atom("_#{factory_name}_factory_opts"))(), do: unquote(merged_opts)
 
       # Extract hooks - used many times throughout
       hooks = Keyword.get(merged_opts, :hooks, [])

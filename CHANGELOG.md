@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** The debug functions `_factory_opts/0` and `_<name>_factory_opts/0` are replaced
+  by a single reflection function following the Elixir dunder convention (like `__schema__`):
+  `__factory_man__(:opts)` for module options and `__factory_man__(:opts, factory_name)` for a
+  factory's (or variant's) merged options.
 - Internal refactor: `deffactory` and `defvariant` now generate their shared function families
   (list builders, `params_for_*`/`string_params_for_*`, insert convenience/list functions) from
   common templates in `FactoryMan.Codegen`, removing ~200 lines of drifted duplication.
