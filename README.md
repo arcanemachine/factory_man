@@ -101,7 +101,8 @@ You write one factory, and FactoryMan generates the rest:
 - **`build_<name>_params`** / **`build_<name>_string_params`** — builds the struct, then converts
   it to a clean params map (Ecto metadata stripped) for changesets or controller tests
 - **`insert_<name>`** — builds the struct and inserts it with your configured repo
-- **`*_list` variants** of all of the above, each item evaluated independently
+- **`insert_<name>_struct`** — inserts an already-built struct through the same insert pipeline
+- **`*_list` variants** of the builders above, each item evaluated independently
 
 Factories without a `struct:` option are simpler: they generate `build_<name>` and
 `build_<name>_list`, and the body can return any value (maps, keyword lists, strings, ...).

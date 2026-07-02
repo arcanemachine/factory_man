@@ -87,6 +87,7 @@ For a factory named `:user` with `struct: User`:
 | `build_user_params_list/1,2`        | `[%{}, ...]`| List of params maps                  |
 | `build_user_string_params_list/1,2` | `[%{}, ...]`| List of string-keyed params maps     |
 | `insert_user_list/1,2,3`            | `[%User{}]` | List of inserted records             |
+| `insert_user_struct/1,2`            | `%User{}`   | Inserts an already-built struct      |
 
 For a factory **without** `struct:` option, simplified names are used: `build_*/0,1` and
 `build_*_list/1,2` (no `_params` suffix).

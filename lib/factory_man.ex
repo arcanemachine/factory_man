@@ -33,6 +33,7 @@ defmodule FactoryMan do
   | `build_user_params_list/1,2`        | `[%{}, ...]`     | List of params maps                  |
   | `build_user_string_params_list/1,2` | `[%{}, ...]`     | List of string-keyed params maps     |
   | `insert_user_list/1,2,3`            | `[%User{}, ...]` | List of inserted records             |
+  | `insert_user_struct/1,2`            | `%User{}`        | Inserts an already-built struct      |
 
   All functions accept optional params for customization. Insert functions also accept repo
   options. Each item in a list is evaluated independently (unique timestamps, sequences, etc.).
@@ -208,6 +209,11 @@ defmodule FactoryMan do
 
   For non-struct factories, `build_*` runs `before_build_params`, the factory body with lazy
   evaluation, then `after_build_params`.
+
+  `insert_user_struct/1,2` runs the same `before_insert` → insert → `after_insert` pipeline on
+  an already-built struct — use it after modifying a built struct, so records are shaped
+  consistently no matter how they were constructed. A raw `Repo.insert!/2` would skip the
+  insert hooks.
 
   ### Hook Reference
 
@@ -645,6 +651,7 @@ defmodule FactoryMan do
   - `build_user_params_list/1,2` - Builds multiple params maps
   - `build_user_string_params_list/1,2` - Builds multiple string-keyed params maps
   - `insert_user_list/1,2,3` - Inserts multiple items (when repo is configured)
+  - `insert_user_struct/1,2` - Inserts an already-built struct through the insert pipeline
 
   For a factory named `greeting` without `struct:`, simplified names are used:
 
@@ -845,6 +852,19 @@ defmodule FactoryMan do
             [],
             __ENV__
           )
+
+          # Insert an already-built struct through the same pipeline as insert_*
+          @doc "Inserts an already-built `#{inspect(struct_module)}` through the `:#{factory_name}` factory's insert pipeline (`before_insert` hook, repo insert, `after_insert` hook)."
+          def unquote(:"insert_#{factory_name}_struct")(
+                %unquote(struct_module){} = struct,
+                repo_insert_opts \\ []
+              )
+              when is_list(repo_insert_opts) do
+            struct
+            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :before_insert).(&1))
+            |> unquote(repo).insert!(repo_insert_opts)
+            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_insert).(&1))
+          end
         end
       end
 
@@ -1021,6 +1041,17 @@ defmodule FactoryMan do
             [],
             __ENV__
           )
+
+          # Insert an already-built struct — delegates to the base factory's pipeline, since a
+          # variant's preprocessor has no role once the struct is built
+          @doc "Inserts an already-built `#{inspect(struct_module)}` through the `:#{base_factory_name}` factory's insert pipeline (`before_insert` hook, repo insert, `after_insert` hook)."
+          def unquote(:"insert_#{full_name}_struct")(
+                %unquote(struct_module){} = struct,
+                repo_insert_opts \\ []
+              )
+              when is_list(repo_insert_opts) do
+            unquote(:"insert_#{base_factory_name}_struct")(struct, repo_insert_opts)
+          end
         end
       end
 

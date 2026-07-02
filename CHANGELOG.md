@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `insert_<name>_struct/1,2`: inserts an already-built struct through the factory's insert
+  pipeline (`before_insert` hook, repo insert with options, `after_insert` hook). Closes a
+  consistency hole: modifying a built struct and calling `Repo.insert!/2` directly skips the
+  factory's insert hooks, producing records shaped differently from `insert_*` results.
+  Variants delegate to their base factory's pipeline. Generated under the same conditions as
+  the other insert functions.
 - `__factory_man__(:factories)` reflection: lists every factory and variant name registered in
   a module (variants under their full name), in definition order. Enables runtime dispatch —
   selecting and calling factories by name — without string-building function names.

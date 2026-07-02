@@ -78,6 +78,54 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
   end
 
+  # ── insert_*_struct ─────────────────────────────────────────────
+
+  describe "insert_*_struct" do
+    test "inserts an already-built struct, keeping modifications" do
+      user =
+        ChildFactory.build_user_struct()
+        |> Map.put(:first_name, "Modified")
+        |> ChildFactory.insert_user_struct()
+
+      assert is_integer(user.id)
+      assert user.first_name == "Modified"
+    end
+
+    test "runs the same insert hooks as insert_*" do
+      author =
+        ChildFactory.build_author_struct()
+        |> ChildFactory.insert_author_struct()
+
+      # The inherited after_insert hook resets associations, same as insert_author()
+      assert %Ecto.Association.NotLoaded{} = author.user
+    end
+
+    test "accepts repo options" do
+      user = ChildFactory.insert_user_struct(ChildFactory.build_user_struct(), returning: true)
+
+      assert is_integer(user.id)
+    end
+
+    test "raises on a struct of the wrong type" do
+      assert_raise FunctionClauseError, fn ->
+        ChildFactory.insert_user_struct(ChildFactory.build_author_struct())
+      end
+    end
+
+    test "variants delegate to the base factory's pipeline" do
+      user =
+        ChildFactory.build_admin_user_struct()
+        |> ChildFactory.insert_admin_user_struct()
+
+      assert is_integer(user.id)
+    end
+
+    test "not generated for insert?: false or embedded-schema factories" do
+      refute function_exported?(ChildFactory, :insert_non_insertable_struct, 1)
+      refute function_exported?(ChildFactory, :insert_embedded_schema_struct, 1)
+    end
+  end
+
   # ── Associations ─────────────────────────────────────────────────
 
   describe "associations" do
