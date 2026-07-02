@@ -459,7 +459,7 @@ defmodule FactoryMan do
               "module #{inspect(__MODULE__)}"
             )
 
-            Keyword.merge(parent_opts, unquote(opts))
+            FactoryMan._merge_opts(parent_opts, unquote(opts))
         end
 
       # Put factory module options into a module attribute that can be read by the child factories
@@ -587,17 +587,13 @@ defmodule FactoryMan do
         "factory :#{factory_name} in #{inspect(__MODULE__)}"
       )
 
-      parent_factory_hooks = Keyword.get(parent_factory_opts, :hooks, [])
-      child_factory_hooks = Keyword.get(opts, :hooks, [])
-      merged_hooks = Keyword.merge(parent_factory_hooks, child_factory_hooks)
-
-      merged_opts = Keyword.merge(parent_factory_opts, opts) |> Keyword.put(:hooks, merged_hooks)
+      merged_opts = FactoryMan._merge_opts(parent_factory_opts, opts)
 
       @doc "A debug helper function that shows all options for the `#{factory_name}` factory."
       def unquote(String.to_atom("_#{factory_name}_factory_opts"))(), do: unquote(merged_opts)
 
       # Extract hooks - used many times throughout
-      hooks = merged_hooks
+      hooks = Keyword.get(merged_opts, :hooks, [])
 
       # Generate params builder functions (skipped when build_params?: false for struct factories)
       # Non-struct factories use `build_*` / `build_*_list` (no suffix).
@@ -1268,6 +1264,28 @@ defmodule FactoryMan do
       &YourProject.Factories.Users.user_after_insert_handler/1
   """
   def get_hook_handler(hooks, hook), do: hooks[hook] || (&FactoryMan.fallback_hook_handler/1)
+
+  @doc """
+  Merge child factory options into parent options.
+
+  Most options are overridden per-key, but `:hooks` are merged per hook key so that a child
+  setting one hook does not discard the parent's other hooks.
+
+  This is a FactoryMan internal function — called from macro-generated code. Use the underscore
+  prefix convention to signal that it is not part of the public API.
+  """
+  def _merge_opts(parent_opts, child_opts) do
+    merged_hooks =
+      Keyword.merge(Keyword.get(parent_opts, :hooks, []), Keyword.get(child_opts, :hooks, []))
+
+    merged_opts = Keyword.merge(parent_opts, child_opts)
+
+    if merged_hooks == [] do
+      merged_opts
+    else
+      Keyword.put(merged_opts, :hooks, merged_hooks)
+    end
+  end
 
   @doc """
   Warn at compile time if child opts contain options that are already defined by the parent with

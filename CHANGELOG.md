@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Module-level hooks now merge per hook key across `extends:`, as documented. Previously a child
+  module that set any `hooks:` option replaced the parent module's hooks wholesale, silently
+  dropping parent hooks for other keys.
+
 - Helper functions are now actually inherited via `extends:`, as documented. Child factory
   modules import all public functions from the full ancestor chain, so helpers like
   `generate_username()` can be called unqualified. Previously this only worked with explicit
