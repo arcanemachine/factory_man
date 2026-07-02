@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Variants are now registered under their full name, so a variant can itself be used as the
+  base of another variant (e.g. `defvariant senior(params \\ %{}), for: :admin_user`).
+  Previously this raised "base factory not found" at compile time.
+
 ### Changed
 
 - Internal refactor: `deffactory` and `defvariant` now generate their shared function families

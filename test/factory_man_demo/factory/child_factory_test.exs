@@ -528,6 +528,17 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       refute function_exported?(ChildFactory, :build_moderator_user_struct, 0)
     end
 
+    test "a variant can be based on another variant" do
+      user = ChildFactory.build_senior_admin_user_struct()
+      assert %User{} = user
+      assert user.first_name == "Senior"
+      assert String.starts_with?(user.username, "admin-")
+
+      inserted = ChildFactory.insert_senior_admin_user()
+      assert inserted.id != nil
+      assert inserted.first_name == "Senior"
+    end
+
     test "variant of a non-struct factory transforms the base factory's input" do
       assert ChildFactory.build_loud_greeting() == "Hello, WORLD!"
       assert ChildFactory.build_loud_greeting("alice") == "Hello, ALICE!"

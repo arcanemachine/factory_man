@@ -747,6 +747,9 @@ defmodule FactoryMan do
   - `:as` - Instead of the default `<variant>_<base>` structure used when generating factory
   functions, (e.g. `build_admin_user_struct`), you may specify a custom name to use when
   generating the factory functions (e.g. `as: :admin` -> `build_admin_struct`)
+
+  Variants are registered under their full name, so a variant can itself serve as the base of
+  another variant (e.g. `defvariant senior(params \\\\ %{}), for: :admin_user`).
   """
 
   defmacro defvariant(variant_head, opts, do: block) do
@@ -880,6 +883,11 @@ defmodule FactoryMan do
           )
         end
       end
+
+      # Register the variant under its full name so it can itself be used as a defvariant base.
+      # The base factory's opts describe the variant's generated functions accurately, since
+      # variants delegate to the base pipeline.
+      @factory_man_registry {full_name, base_opts}
     end
   end
 
