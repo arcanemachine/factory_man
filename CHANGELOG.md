@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   factory's (or variant's) merged options.
 - Internal refactor: `deffactory` and `defvariant` now generate their shared function families
   (list builders, `params_for_*`/`string_params_for_*`, insert convenience/list functions) from
-  common templates in `FactoryMan.Codegen`, removing ~200 lines of drifted duplication.
+  common templates in an internal codegen module, removing ~200 lines of drifted duplication.
 - **Breaking (edge case):** variant list convenience functions (`build_<variant>_list/1` and
   `build_<variant>_params_list/1`) are now generated under the same conditions as their
   `deffactory` counterparts — when the factory head has a default argument — and call the item
@@ -50,8 +50,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   argument has no default no longer get the 1-arity list convenience.
 - Duplicate option warnings are now emitted with `IO.warn` instead of `Logger.warning`, so they
   carry file/line attribution and are caught by `--warnings-as-errors`.
+- Documentation restructured: the README is now a short onboarding tour (installation, quick
+  tour, how it works, which function to use, project structure), and the `FactoryMan` moduledoc
+  is the full reference — ending the near-total duplication between the two. Hooks and variants
+  moved up in the reference; added a mermaid diagram of the generated-function pipeline and a
+  cookbook section (building associations). The README install snippet now recommends
+  `only: [:dev, :test]`.
 
 ### Fixed
+
+- An unescaped interpolation in the moduledoc's hooks example baked a compile-time timestamp
+  into the published docs; the example now renders `System.os_time()` literally as intended.
 
 - Variant list builders no longer crash for variants of non-struct factories with non-map
   defaults (e.g. `defvariant loud(name \\ "world"), for: :greeting`). Previously
