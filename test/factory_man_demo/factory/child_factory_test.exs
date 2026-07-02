@@ -529,6 +529,15 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert user.full_name == "Bob User"
     end
 
+    test "insert_*_list/2 is documented for pattern-match factories" do
+      {:docs_v1, _, _, _, _, _, docs} = Code.fetch_docs(ChildFactory)
+
+      assert Enum.any?(docs, fn
+               {{:function, :insert_combined_pattern_list, 2}, _, _, %{"en" => _}, _} -> true
+               _ -> false
+             end)
+    end
+
     test "nested pattern match extracts deeply nested values" do
       params = ChildFactory.build_nested_pattern(%{author: %{name: "John"}})
       assert params.username == "author-john"

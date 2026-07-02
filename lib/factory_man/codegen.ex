@@ -216,6 +216,15 @@ defmodule FactoryMan.Codegen do
         end
       end
 
+    # When the pattern-match gate skips the conveniences, the /2 doc must ride on the
+    # (count, params) clause instead — it is then the first clause of that arity
+    implementation_doc =
+      if projections.has_pattern_match do
+        quote do
+          @doc unquote(doc)
+        end
+      end
+
     implementations =
       quote do
         def unquote(insert_list_fn)(count, params)
@@ -232,7 +241,7 @@ defmodule FactoryMan.Codegen do
         end
       end
 
-    block([conveniences, implementations])
+    block([conveniences, implementation_doc, implementations])
   end
 
   defp block(parts) do
