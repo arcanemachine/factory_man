@@ -513,6 +513,9 @@ defmodule FactoryMan do
   - `:insert?` - Set to `false` to skip generating insert functions (default: `true` when
     repo is configured and struct is insertable)
   - `:build_struct?` - Set to `false` to skip generating struct builder functions (default: `true`)
+  - `:build_params?` - Set to `false` to skip generating params builder functions; the factory
+    body then returns a struct directly (default: `true`). Only affects struct factories —
+    ignored for non-struct factories.
   - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
   - `:suppress_duplicate_option_warning` - Set to `true` to suppress warnings when this
     factory specifies an option already defined by the module with the same value
@@ -1251,14 +1254,14 @@ defmodule FactoryMan do
   def fallback_hook_handler(value), do: value
 
   @doc """
-  Get the configured handler for a `hook`, or fall back to `&FactoryMan.fallback_hook_handler/0`.
+  Get the configured handler for a `hook`, or fall back to `&FactoryMan.fallback_hook_handler/1`.
 
   ## Examples
 
       iex> hooks = [after_insert: &YourProject.Factories.Users.user_after_insert_handler/1]
 
       iex> FactoryMan.get_hook_handler(hooks, :before_build)
-      &FactoryMan.fallback_hook_handler/0
+      &FactoryMan.fallback_hook_handler/1
 
       iex> FactoryMan.get_hook_handler(hooks, :after_insert)
       &YourProject.Factories.Users.user_after_insert_handler/1
