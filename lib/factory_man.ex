@@ -562,7 +562,6 @@ defmodule FactoryMan do
     extraction = extract_factory_args(factory_head)
 
     factory_name = extraction.name
-    arg_ast = extraction.arg_ast
     head_ast = extraction.head_ast
     user_var = extraction.user_var
     arg_ast_no_default = extraction.arg_no_default
@@ -572,7 +571,6 @@ defmodule FactoryMan do
 
     quote bind_quoted: [
             factory_name: factory_name,
-            arg_ast: Macro.escape(arg_ast, unquote: true),
             head_ast: Macro.escape(head_ast, unquote: true),
             user_var: Macro.escape(user_var, unquote: true),
             arg_ast_no_default: Macro.escape(arg_ast_no_default, unquote: true),
@@ -598,6 +596,14 @@ defmodule FactoryMan do
       # Extract hooks - used many times throughout
       hooks = Keyword.get(merged_opts, :hooks, [])
 
+      projections = %{
+        head_ast: head_ast,
+        plain_var: plain_var_ast,
+        user_var: user_var,
+        has_pattern_match: has_pattern_match,
+        has_default: has_default
+      }
+
       # Generate params builder functions (skipped when build_params?: false for struct factories)
       # Non-struct factories use `build_*` / `build_*_list` (no suffix).
       # Struct factories use `build_*_params` / `build_*_params_list`.
@@ -606,7 +612,6 @@ defmodule FactoryMan do
       if merged_opts[:build_params?] != false or is_nil(merged_opts[:struct]) do
         params_suffix = if merged_opts[:struct], do: "_params", else: ""
         build_fn = :"build_#{factory_name}#{params_suffix}"
-        build_list_fn = :"build_#{factory_name}#{params_suffix}_list"
 
         # Head declaration (simple variable with default if present)
         def unquote({build_fn, [], [head_ast]})
@@ -621,32 +626,24 @@ defmodule FactoryMan do
           |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
         end
 
-        # Generate list builder function
-        # Only generate convenience function if argument has a default value
-        if has_default do
-          def unquote(build_list_fn)(count)
-              when is_integer(count) and count >= 0 do
-            Stream.repeatedly(fn -> unquote(build_fn)() end)
-            |> Enum.take(count)
-          end
-        end
-
-        def unquote(build_list_fn)(count, params)
-            when is_integer(count) and count >= 0 do
-          Stream.repeatedly(fn -> unquote(build_fn)(params) end)
-          |> Enum.take(count)
-        end
+        Code.eval_quoted(
+          FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
+          [],
+          __ENV__
+        )
       end
 
       if merged_opts[:struct] != nil and merged_opts[:build_struct?] != false do
-        if merged_opts[:build_params?] != false do
-          # Generate struct builder function (standard: delegates to params builder)
-          # Head declaration (simple variable with default if present)
-          def unquote({:"build_#{factory_name}_struct", [], [head_ast]})
+        build_struct_fn = :"build_#{factory_name}_struct"
 
+        # Head declaration (simple variable with default if present)
+        def unquote({build_struct_fn, [], [head_ast]})
+
+        if merged_opts[:build_params?] != false do
+          # Standard: delegates to the params builder.
           # Implementation - uses plain_var_ast since pattern match variables
           # are only needed in the params builder body
-          def unquote({:"build_#{factory_name}_struct", [], [plain_var_ast]}) do
+          def unquote({build_struct_fn, [], [plain_var_ast]}) do
             unquote(user_var)
             |> unquote(:"build_#{factory_name}_params")()
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :before_build_struct).(&1))
@@ -654,99 +651,50 @@ defmodule FactoryMan do
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
           end
         else
-          # Generate struct builder function (build_params?: false: body returns struct directly)
-          # Head declaration (simple variable with default if present)
-          def unquote({:"build_#{factory_name}_struct", [], [head_ast]})
-
+          # build_params?: false — the body returns the struct directly.
           # Implementation - uses arg_ast_no_default since pattern matching
           # is needed in the body (same role as params builder in standard mode)
-          def unquote({:"build_#{factory_name}_struct", [], [arg_ast_no_default]}) do
+          def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
             unquote(block)
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
           end
         end
 
-        # Generate struct list builder function
-        # Only generate convenience function if there's no pattern match without default
-        if not has_pattern_match do
-          def unquote(:"build_#{factory_name}_struct_list")(count)
-              when is_integer(count) and count >= 0 do
-            unquote(:"build_#{factory_name}_struct_list")(count, %{})
-          end
-        end
-
-        def unquote(:"build_#{factory_name}_struct_list")(count, params)
-            when is_integer(count) and count >= 0 and is_map(params) do
-          Stream.repeatedly(fn ->
-            unquote(:"build_#{factory_name}_struct")(params)
-          end)
-          |> Enum.take(count)
-        end
+        Code.eval_quoted(
+          FactoryMan.Codegen.map_list_fns(
+            build_struct_fn,
+            :"#{build_struct_fn}_list",
+            projections
+          ),
+          [],
+          __ENV__
+        )
 
         struct_module = merged_opts[:struct]
         repo = merged_opts[:repo]
-        insert? = merged_opts[:insert?]
-
-        is_ecto_schema? =
-          match?({:module, _}, Code.ensure_compiled(struct_module)) and
-            function_exported?(struct_module, :__schema__, 1)
 
         # Generate params_for and string_params_for (only for Ecto schemas)
-        if is_ecto_schema? do
-          if has_default do
-            def unquote(:"params_for_#{factory_name}")() do
-              unquote(:"build_#{factory_name}_struct")()
-              |> FactoryMan.Params.strip()
-            end
-          end
-
-          def unquote(:"params_for_#{factory_name}")(unquote(plain_var_ast)) do
-            unquote(user_var)
-            |> unquote(:"build_#{factory_name}_struct")()
-            |> FactoryMan.Params.strip()
-          end
-
-          if has_default do
-            def unquote(:"string_params_for_#{factory_name}")() do
-              unquote(:"params_for_#{factory_name}")()
-              |> FactoryMan.Params.stringify_keys()
-            end
-          end
-
-          def unquote(:"string_params_for_#{factory_name}")(unquote(plain_var_ast)) do
-            unquote(:"params_for_#{factory_name}")(unquote(user_var))
-            |> FactoryMan.Params.stringify_keys()
-          end
+        if FactoryMan.Codegen.ecto_schema?(struct_module) do
+          Code.eval_quoted(
+            FactoryMan.Codegen.params_for_fns(factory_name, projections),
+            [],
+            __ENV__
+          )
         end
 
-        is_insertable_ecto_schema_factory? =
-          is_ecto_schema? and not is_nil(repo) and
-            struct_module.__schema__(:source) != nil
+        if FactoryMan.Codegen.insertable_ecto_schema?(struct_module, repo) and
+             merged_opts[:insert?] != false do
+          insert_fn = :"insert_#{factory_name}"
 
-        if is_insertable_ecto_schema_factory? and insert? != false do
-          # Generate struct insert functions
-          # Head declaration (simple variable with default if present)
-          def unquote({:"insert_#{factory_name}", [], [head_ast]})
-
-          # Only generate convenience function if there's no pattern match without default
-          # Pattern matches require specific keys, so we can't call with %{}
-          if not has_pattern_match do
-            def unquote(:"insert_#{factory_name}")(repo_insert_opts)
-                when is_list(repo_insert_opts) do
-              unquote(:"insert_#{factory_name}")(%{}, repo_insert_opts)
-            end
-          end
+          Code.eval_quoted(
+            FactoryMan.Codegen.insert_convenience_fns(insert_fn, projections),
+            [],
+            __ENV__
+          )
 
           # Implementation - uses plain_var_ast since pattern match variables
           # are only needed in the params builder body
-          def unquote(:"insert_#{factory_name}")(unquote(plain_var_ast)) do
-            unquote(:"insert_#{factory_name}")(unquote(user_var), [])
-          end
-
-          def unquote(:"insert_#{factory_name}")(
-                unquote(plain_var_ast),
-                repo_insert_opts
-              )
+          def unquote(insert_fn)(unquote(plain_var_ast), repo_insert_opts)
               when is_list(repo_insert_opts) do
             unquote(user_var)
             |> unquote(:"build_#{factory_name}_struct")()
@@ -755,33 +703,11 @@ defmodule FactoryMan do
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_insert).(&1))
           end
 
-          # Generate struct insert list functions
-          # Only generate convenience functions if there's no pattern match without default
-          if not has_pattern_match do
-            def unquote(:"insert_#{factory_name}_list")(count)
-                when is_integer(count) and count >= 0 do
-              unquote(:"insert_#{factory_name}_list")(count, %{}, [])
-            end
-
-            def unquote(:"insert_#{factory_name}_list")(count, repo_insert_opts)
-                when is_integer(count) and count >= 0 and is_list(repo_insert_opts) do
-              unquote(:"insert_#{factory_name}_list")(count, %{}, repo_insert_opts)
-            end
-          end
-
-          def unquote(:"insert_#{factory_name}_list")(count, params)
-              when is_integer(count) and count >= 0 and is_map(params) do
-            unquote(:"insert_#{factory_name}_list")(count, params, [])
-          end
-
-          def unquote(:"insert_#{factory_name}_list")(count, params, repo_insert_opts)
-              when is_integer(count) and count >= 0 and is_map(params) and
-                     is_list(repo_insert_opts) do
-            Stream.repeatedly(fn ->
-              unquote(:"insert_#{factory_name}")(params, repo_insert_opts)
-            end)
-            |> Enum.take(count)
-          end
+          Code.eval_quoted(
+            FactoryMan.Codegen.insert_list_fns(insert_fn, :"#{insert_fn}_list", projections),
+            [],
+            __ENV__
+          )
         end
       end
 
@@ -827,7 +753,6 @@ defmodule FactoryMan do
     extraction = extract_factory_args(variant_head)
 
     variant_name = extraction.name
-    arg_ast = extraction.arg_ast
     head_ast = extraction.head_ast
     user_var = extraction.user_var
     arg_ast_no_default = extraction.arg_no_default
@@ -842,7 +767,6 @@ defmodule FactoryMan do
             variant_name: variant_name,
             base_factory_name: base_factory_name,
             as_name: as_name,
-            arg_ast: Macro.escape(arg_ast, unquote: true),
             head_ast: Macro.escape(head_ast, unquote: true),
             user_var: Macro.escape(user_var, unquote: true),
             arg_ast_no_default: Macro.escape(arg_ast_no_default, unquote: true),
@@ -868,12 +792,19 @@ defmodule FactoryMan do
       # The :as option overrides this combined name.
       full_name = as_name || :"#{variant_name}_#{base_factory_name}"
 
+      projections = %{
+        head_ast: head_ast,
+        plain_var: plain_var_ast,
+        user_var: user_var,
+        has_pattern_match: has_pattern_match,
+        has_default: has_default
+      }
+
       # Generate params builder variant (if base factory has params)
       # Non-struct factories use `build_*` / `build_*_list` (no suffix).
       if base_opts[:build_params?] != false or is_nil(base_opts[:struct]) do
         params_suffix = if base_opts[:struct], do: "_params", else: ""
         build_fn = :"build_#{full_name}#{params_suffix}"
-        build_list_fn = :"build_#{full_name}#{params_suffix}_list"
         base_build_fn = :"build_#{base_factory_name}#{params_suffix}"
 
         def unquote({build_fn, [], [head_ast]})
@@ -883,150 +814,70 @@ defmodule FactoryMan do
           |> unquote(base_build_fn)()
         end
 
-        if not has_pattern_match do
-          def unquote(build_list_fn)(count)
-              when is_integer(count) and count >= 0 do
-            unquote(build_list_fn)(count, %{})
-          end
-        end
-
-        def unquote(build_list_fn)(count, params)
-            when is_integer(count) and count >= 0 and is_map(params) do
-          Stream.repeatedly(fn ->
-            unquote(build_fn)(params)
-          end)
-          |> Enum.take(count)
-        end
+        Code.eval_quoted(
+          FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
+          [],
+          __ENV__
+        )
       end
 
       # Generate struct builder variant (if base factory has struct)
       if base_opts[:struct] != nil and base_opts[:build_struct?] != false do
-        def unquote({:"build_#{full_name}_struct", [], [head_ast]})
+        build_struct_fn = :"build_#{full_name}_struct"
 
-        def unquote({:"build_#{full_name}_struct", [], [arg_ast_no_default]}) do
+        def unquote({build_struct_fn, [], [head_ast]})
+
+        def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
           unquote(block)
           |> unquote(:"build_#{base_factory_name}_struct")()
         end
 
-        if not has_pattern_match do
-          def unquote(:"build_#{full_name}_struct_list")(count)
-              when is_integer(count) and count >= 0 do
-            unquote(:"build_#{full_name}_struct_list")(count, %{})
-          end
-        end
+        Code.eval_quoted(
+          FactoryMan.Codegen.map_list_fns(
+            build_struct_fn,
+            :"#{build_struct_fn}_list",
+            projections
+          ),
+          [],
+          __ENV__
+        )
 
-        def unquote(:"build_#{full_name}_struct_list")(count, params)
-            when is_integer(count) and count >= 0 and is_map(params) do
-          Stream.repeatedly(fn ->
-            unquote(:"build_#{full_name}_struct")(params)
-          end)
-          |> Enum.take(count)
-        end
-
-        # Generate params_for variant (if base factory is an Ecto schema)
         struct_module = base_opts[:struct]
         repo = base_opts[:repo]
-        insert? = base_opts[:insert?]
 
-        is_ecto_schema? =
-          match?({:module, _}, Code.ensure_compiled(struct_module)) and
-            function_exported?(struct_module, :__schema__, 1)
-
-        if is_ecto_schema? do
-          if has_default do
-            def unquote(:"params_for_#{full_name}")() do
-              unquote(:"build_#{full_name}_struct")()
-              |> FactoryMan.Params.strip()
-            end
-          end
-
-          def unquote(:"params_for_#{full_name}")(unquote(plain_var_ast)) do
-            unquote(user_var)
-            |> unquote(:"build_#{full_name}_struct")()
-            |> FactoryMan.Params.strip()
-          end
-
-          if has_default do
-            def unquote(:"string_params_for_#{full_name}")() do
-              unquote(:"params_for_#{full_name}")()
-              |> FactoryMan.Params.stringify_keys()
-            end
-          end
-
-          def unquote(:"string_params_for_#{full_name}")(unquote(plain_var_ast)) do
-            unquote(:"params_for_#{full_name}")(unquote(user_var))
-            |> FactoryMan.Params.stringify_keys()
-          end
+        # Generate params_for variant (if base factory is an Ecto schema)
+        if FactoryMan.Codegen.ecto_schema?(struct_module) do
+          Code.eval_quoted(
+            FactoryMan.Codegen.params_for_fns(full_name, projections),
+            [],
+            __ENV__
+          )
         end
 
         # Generate insert variant -- delegates to base factory's insert
         # (reuses base factory's hooks, repo config, and insert pipeline)
-        is_insertable_ecto_schema_factory? =
-          is_ecto_schema? and not is_nil(repo) and
-            struct_module.__schema__(:source) != nil
+        if FactoryMan.Codegen.insertable_ecto_schema?(struct_module, repo) and
+             base_opts[:insert?] != false do
+          insert_fn = :"insert_#{full_name}"
 
-        if is_insertable_ecto_schema_factory? and insert? != false do
-          # Head declaration
-          def unquote({:"insert_#{full_name}", [], [head_ast]})
+          Code.eval_quoted(
+            FactoryMan.Codegen.insert_convenience_fns(insert_fn, projections),
+            [],
+            __ENV__
+          )
 
-          if not has_pattern_match do
-            def unquote(:"insert_#{full_name}")(repo_insert_opts)
-                when is_list(repo_insert_opts) do
-              unquote(:"insert_#{full_name}")(%{}, repo_insert_opts)
-            end
-          end
-
-          def unquote(:"insert_#{full_name}")(unquote(plain_var_ast)) do
-            unquote(:"insert_#{full_name}")(unquote(user_var), [])
-          end
-
-          def unquote(:"insert_#{full_name}")(
-                unquote(arg_ast_no_default),
-                repo_insert_opts
-              )
+          # Transform params via variant body, then delegate to base insert
+          def unquote(insert_fn)(unquote(arg_ast_no_default), repo_insert_opts)
               when is_list(repo_insert_opts) do
-            # Transform params via variant body, then delegate to base insert
             unquote(block)
             |> unquote(:"insert_#{base_factory_name}")(repo_insert_opts)
           end
 
-          # List insert variants
-          if not has_pattern_match do
-            def unquote(:"insert_#{full_name}_list")(count)
-                when is_integer(count) and count >= 0 do
-              unquote(:"insert_#{full_name}_list")(count, %{}, [])
-            end
-
-            def unquote(:"insert_#{full_name}_list")(
-                  count,
-                  repo_insert_opts
-                )
-                when is_integer(count) and count >= 0 and is_list(repo_insert_opts) do
-              unquote(:"insert_#{full_name}_list")(
-                count,
-                %{},
-                repo_insert_opts
-              )
-            end
-          end
-
-          def unquote(:"insert_#{full_name}_list")(count, params)
-              when is_integer(count) and count >= 0 and is_map(params) do
-            unquote(:"insert_#{full_name}_list")(count, params, [])
-          end
-
-          def unquote(:"insert_#{full_name}_list")(
-                count,
-                params,
-                repo_insert_opts
-              )
-              when is_integer(count) and count >= 0 and is_map(params) and
-                     is_list(repo_insert_opts) do
-            Stream.repeatedly(fn ->
-              unquote(:"insert_#{full_name}")(params, repo_insert_opts)
-            end)
-            |> Enum.take(count)
-          end
+          Code.eval_quoted(
+            FactoryMan.Codegen.insert_list_fns(insert_fn, :"#{insert_fn}_list", projections),
+            [],
+            __ENV__
+          )
         end
       end
     end
@@ -1056,7 +907,6 @@ defmodule FactoryMan do
     # Build the result map
     %{
       name: name,
-      arg_ast: arg_ast,
       head_ast: components.head_ast,
       user_var: components.user_var,
       arg_no_default: components.arg_no_default,

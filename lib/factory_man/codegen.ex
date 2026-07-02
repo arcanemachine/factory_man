@@ -1,0 +1,208 @@
+defmodule FactoryMan.Codegen do
+  @moduledoc false
+
+  # Compile-time helpers shared by `deffactory` and `defvariant`.
+  #
+  # Each `*_fns` function returns a quoted block of function definitions. The macros call these
+  # from within their `quote bind_quoted:` blocks and materialize the result with
+  # `Module.eval_quoted/2`, so both macros generate identical function families from a single
+  # template.
+  #
+  # The `projections` map carries the argument AST projections extracted from the factory head:
+  #
+  # - `:head_ast` — argument with default, no pattern match (for bodiless function heads)
+  # - `:plain_var` — just the argument variable (for wrappers that don't destructure)
+  # - `:user_var` — the argument variable, for referencing in wrapper bodies
+  # - `:has_pattern_match` / `:has_default` — gate which convenience arities are generated
+
+  @doc """
+  Whether `module` is a compiled Ecto schema.
+  """
+  def ecto_schema?(module) do
+    match?({:module, _}, Code.ensure_compiled(module)) and
+      function_exported?(module, :__schema__, 1)
+  end
+
+  @doc """
+  Whether `module` is an Ecto schema that can be inserted (has a source table and a repo is
+  configured). Embedded schemas have no source and are not insertable.
+  """
+  def insertable_ecto_schema?(module, repo) do
+    ecto_schema?(module) and not is_nil(repo) and module.__schema__(:source) != nil
+  end
+
+  @doc """
+  List builders for factories whose params may be any value (params builders and non-struct
+  factories).
+
+  The 1-arity convenience calls the item builder with its actual default argument (not `%{}`),
+  so factories with non-map defaults work. It is only generated when the factory head has a
+  default.
+  """
+  def value_list_fns(build_fn, build_list_fn, projections) do
+    convenience =
+      if projections.has_default do
+        quote do
+          def unquote(build_list_fn)(count)
+              when is_integer(count) and count >= 0 do
+            Stream.repeatedly(fn -> unquote(build_fn)() end)
+            |> Enum.take(count)
+          end
+        end
+      end
+
+    implementation =
+      quote do
+        def unquote(build_list_fn)(count, params)
+            when is_integer(count) and count >= 0 do
+          Stream.repeatedly(fn -> unquote(build_fn)(params) end)
+          |> Enum.take(count)
+        end
+      end
+
+    block([convenience, implementation])
+  end
+
+  @doc """
+  List builders for functions whose params are always maps (struct builders).
+
+  The 1-arity convenience passes `%{}` and is skipped when the factory head pattern-matches on
+  required keys (calling with `%{}` would not match).
+  """
+  def map_list_fns(build_fn, build_list_fn, projections) do
+    convenience =
+      if not projections.has_pattern_match do
+        quote do
+          def unquote(build_list_fn)(count)
+              when is_integer(count) and count >= 0 do
+            unquote(build_list_fn)(count, %{})
+          end
+        end
+      end
+
+    implementation =
+      quote do
+        def unquote(build_list_fn)(count, params)
+            when is_integer(count) and count >= 0 and is_map(params) do
+          Stream.repeatedly(fn -> unquote(build_fn)(params) end)
+          |> Enum.take(count)
+        end
+      end
+
+    block([convenience, implementation])
+  end
+
+  @doc """
+  `params_for_*` and `string_params_for_*` functions for Ecto schema factories. They build a
+  struct via `build_<name>_struct` and strip Ecto metadata.
+  """
+  def params_for_fns(full_name, projections) do
+    build_struct_fn = :"build_#{full_name}_struct"
+    params_for_fn = :"params_for_#{full_name}"
+    string_params_for_fn = :"string_params_for_#{full_name}"
+
+    zero_arity =
+      if projections.has_default do
+        quote do
+          def unquote(params_for_fn)() do
+            unquote(build_struct_fn)()
+            |> FactoryMan.Params.strip()
+          end
+
+          def unquote(string_params_for_fn)() do
+            unquote(params_for_fn)()
+            |> FactoryMan.Params.stringify_keys()
+          end
+        end
+      end
+
+    one_arity =
+      quote do
+        def unquote(params_for_fn)(unquote(projections.plain_var)) do
+          unquote(projections.user_var)
+          |> unquote(build_struct_fn)()
+          |> FactoryMan.Params.strip()
+        end
+
+        def unquote(string_params_for_fn)(unquote(projections.plain_var)) do
+          unquote(params_for_fn)(unquote(projections.user_var))
+          |> FactoryMan.Params.stringify_keys()
+        end
+      end
+
+    block([zero_arity, one_arity])
+  end
+
+  @doc """
+  Head declaration and convenience arities for `insert_*`. The 2-arity implementation clause
+  differs between `deffactory` and `defvariant` and stays in the macros; it must be defined
+  directly after these.
+  """
+  def insert_convenience_fns(insert_fn, projections) do
+    head =
+      quote do
+        def unquote(insert_fn)(unquote(projections.head_ast))
+      end
+
+    # Pattern matches require specific keys, so we can't call with %{}
+    repo_opts_convenience =
+      if not projections.has_pattern_match do
+        quote do
+          def unquote(insert_fn)(repo_insert_opts)
+              when is_list(repo_insert_opts) do
+            unquote(insert_fn)(%{}, repo_insert_opts)
+          end
+        end
+      end
+
+    params_convenience =
+      quote do
+        def unquote(insert_fn)(unquote(projections.plain_var)) do
+          unquote(insert_fn)(unquote(projections.user_var), [])
+        end
+      end
+
+    block([head, repo_opts_convenience, params_convenience])
+  end
+
+  @doc """
+  `insert_*_list` functions. Each item delegates to `insert_<name>/2`.
+  """
+  def insert_list_fns(insert_fn, insert_list_fn, projections) do
+    conveniences =
+      if not projections.has_pattern_match do
+        quote do
+          def unquote(insert_list_fn)(count)
+              when is_integer(count) and count >= 0 do
+            unquote(insert_list_fn)(count, %{}, [])
+          end
+
+          def unquote(insert_list_fn)(count, repo_insert_opts)
+              when is_integer(count) and count >= 0 and is_list(repo_insert_opts) do
+            unquote(insert_list_fn)(count, %{}, repo_insert_opts)
+          end
+        end
+      end
+
+    implementations =
+      quote do
+        def unquote(insert_list_fn)(count, params)
+            when is_integer(count) and count >= 0 and is_map(params) do
+          unquote(insert_list_fn)(count, params, [])
+        end
+
+        def unquote(insert_list_fn)(count, params, repo_insert_opts)
+            when is_integer(count) and count >= 0 and is_map(params) and
+                   is_list(repo_insert_opts) do
+          Stream.repeatedly(fn -> unquote(insert_fn)(params, repo_insert_opts) end)
+          |> Enum.take(count)
+        end
+      end
+
+    block([conveniences, implementations])
+  end
+
+  defp block(parts) do
+    {:__block__, [], Enum.reject(parts, &is_nil/1)}
+  end
+end

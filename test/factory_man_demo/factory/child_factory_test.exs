@@ -528,6 +528,20 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       refute function_exported?(ChildFactory, :build_moderator_user_struct, 0)
     end
 
+    test "variant of a non-struct factory transforms the base factory's input" do
+      assert ChildFactory.build_loud_greeting() == "Hello, WORLD!"
+      assert ChildFactory.build_loud_greeting("alice") == "Hello, ALICE!"
+    end
+
+    test "variant list builder of a non-struct factory uses the actual default argument" do
+      # Regression: previously the 1-arity list convenience passed %{} instead of
+      # using the factory's default, crashing variants with non-map defaults.
+      assert ChildFactory.build_loud_greeting_list(2) == [
+               "Hello, WORLD!",
+               "Hello, WORLD!"
+             ]
+    end
+
     test "variant without base factory raises at compile time" do
       assert_raise ArgumentError,
                    ~r/base factory :nonexistent not found/,

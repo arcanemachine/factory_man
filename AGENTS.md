@@ -15,6 +15,8 @@ examples — do not modify them unless specifically asked.
 lib/
   factory_man.ex              # Main module — core macro system
   factory_man/
+    codegen.ex                # Shared codegen templates for deffactory/defvariant
+    params.ex                 # Ecto struct -> clean params map (params_for_*)
     sequence.ex               # Sequence generation (Agent-based counter)
 
 test/

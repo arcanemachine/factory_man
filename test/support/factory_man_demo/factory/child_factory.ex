@@ -133,6 +133,11 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     "Hello, #{name}!"
   end
 
+  # Variant of a non-struct factory with a non-map default
+  defvariant loud(name \\ "world"), for: :greeting do
+    String.upcase(name)
+  end
+
   deffactory nothing(value \\ nil) do
     value
   end

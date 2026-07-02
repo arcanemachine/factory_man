@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Internal refactor: `deffactory` and `defvariant` now generate their shared function families
+  (list builders, `params_for_*`/`string_params_for_*`, insert convenience/list functions) from
+  common templates in `FactoryMan.Codegen`, removing ~200 lines of drifted duplication.
+- **Breaking (edge case):** variant list convenience functions (`build_<variant>_list/1` and
+  `build_<variant>_params_list/1`) are now generated under the same conditions as their
+  `deffactory` counterparts — when the factory head has a default argument — and call the item
+  builder with its actual default instead of always passing `%{}`. Variants of factories whose
+  argument has no default no longer get the 1-arity list convenience.
+
 ### Fixed
+
+- Variant list builders no longer crash for variants of non-struct factories with non-map
+  defaults (e.g. `defvariant loud(name \\ "world"), for: :greeting`). Previously
+  `build_loud_greeting_list(2)` passed `%{}` to the variant body.
 
 - Module-level hooks now merge per hook key across `extends:`, as documented. Previously a child
   module that set any `hooks:` option replaced the parent module's hooks wholesale, silently
