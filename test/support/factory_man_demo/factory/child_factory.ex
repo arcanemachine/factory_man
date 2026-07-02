@@ -14,10 +14,10 @@ defmodule FactoryManDemo.Factory.ChildFactory do
   end
 
   deffactory author(params \\ %{}), struct: Author do
-    base_params = %{
-      user: Map.get_lazy(params, :user, fn -> build_user_struct() end),
-      name: "Some author"
-    }
+    base_params = %{name: "Some author"}
+
+    # Resolve into `params` (not `base_params`) so the final merge keeps the resolved value
+    params = Map.put(params, :user, assoc(params, :user, &build_user_struct/1, struct: User))
 
     Map.merge(base_params, params)
   end

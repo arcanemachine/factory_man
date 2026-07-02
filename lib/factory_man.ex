@@ -130,18 +130,21 @@ defmodule FactoryMan do
   functions are resolved at build time. Non-map, non-keyword-list values are passed through
   unchanged.
 
-  **Associations** — call other factories to build related records:
+  **Associations** — resolve related records with `assoc/4` (see the Cookbook section):
 
   ```elixir
   deffactory author(params \\\\ %{}), struct: Author do
-    base_params = %{
-      name: "Test Author",
-      user: Map.get_lazy(params, :user, fn -> build_user_struct() end)
-    }
+    base_params = %{name: "Test Author"}
+
+    params = Map.put(params, :user, assoc(params, :user, &build_user_struct/1, struct: User))
 
     Map.merge(base_params, params)
   end
   ```
+
+  Resolve into `params` rather than into the defaults map: the final `Map.merge` gives `params`
+  the last word, so a value resolved only in the defaults would be clobbered by the caller's
+  raw input.
 
   ## Params Functions
 
@@ -428,22 +431,31 @@ defmodule FactoryMan do
 
   ### Building associations
 
-  Let callers pass a prebuilt association, and build one only when they don't:
+  Use `assoc/4` to let callers pass a prebuilt association, params to build one from, or
+  nothing at all:
 
   ```elixir
   deffactory post(params \\\\ %{}), struct: Post do
-    base_params = %{
-      title: sequence("post"),
-      author: Map.get_lazy(params, :author, fn -> build_author_struct() end)
-    }
+    base_params = %{title: sequence("post")}
+
+    params =
+      Map.put(params, :author, assoc(params, :author, &build_author_struct/1, struct: Author))
 
     Map.merge(base_params, params)
   end
+
+  build_post_struct()                          # builds a default author
+  build_post_struct(%{author: my_author})      # reuses the given struct
+  build_post_struct(%{author: %{name: "Ann"}}) # builds an author from params
   ```
 
-  `Map.get_lazy/3` only builds the default author when the caller didn't provide one — so
-  `build_post_struct(%{author: my_author})` reuses the given struct, and `build_post_struct()`
-  builds a fresh one.
+  In merge-style factories, resolve into `params` (as above), not into the defaults map — the
+  final `Map.merge` would clobber a resolved default with the caller's raw input. Factories
+  with `body: :struct` don't merge, so they can use `assoc/4` directly in field position.
+
+  The `struct:` option raises on a struct of the wrong type — without it, a mistyped value
+  would be reused silently. See `assoc/4` for the full semantics (`:inherit` defaults,
+  optional associations via `on_nil: :keep`) and `assoc_list/4` for `has_many`-style lists.
 
   When the schema only needs a foreign key (and the record must exist), insert the association
   and use its ID:
@@ -496,7 +508,15 @@ defmodule FactoryMan do
       unquote_splicing(parent_imports)
 
       import unquote(__MODULE__),
-        only: [deffactory: 2, deffactory: 3, defvariant: 3]
+        only: [
+          assoc: 3,
+          assoc: 4,
+          assoc_list: 3,
+          assoc_list: 4,
+          deffactory: 2,
+          deffactory: 3,
+          defvariant: 3
+        ]
 
       Module.register_attribute(__MODULE__, :factory_man_registry, accumulate: true)
 
@@ -1138,6 +1158,149 @@ defmodule FactoryMan do
 
   # Extract variable name from a variable AST node
   defp extract_var_name({var_name, _, _}) when is_atom(var_name), do: var_name
+
+  @doc """
+  Resolve an association value from factory params.
+
+  Factories commonly accept an association as either a prebuilt struct, a params map to build
+  one from, or nothing at all. `assoc/4` resolves all of those with one call:
+
+  ```elixir
+  deffactory post(params \\\\ %{}), struct: Post do
+    base_params = %{title: sequence("post")}
+
+    params =
+      Map.put(params, :author, assoc(params, :author, &build_author_struct/1, struct: Author))
+
+    Map.merge(base_params, params)
+  end
+  ```
+
+  In merge-style factories, resolve into `params` (as above) so the final `Map.merge` keeps the
+  resolved value; `body: :struct` factories can call `assoc/4` directly in field position.
+
+  | `params[key]`                     | Result                                    |
+  | --------------------------------- | ----------------------------------------- |
+  | key absent                        | `build_fun.(inherit)`                     |
+  | `nil` (with `on_nil: :build`)     | `build_fun.(inherit)`                     |
+  | `nil` (with `on_nil: :keep`)      | `nil`                                     |
+  | struct matching `:struct`         | reused as-is                              |
+  | struct not matching `:struct`     | raises `ArgumentError`                    |
+  | any struct (no `:struct` option)  | reused as-is                              |
+  | params map                        | `build_fun.(Map.merge(inherit, map))`     |
+  | anything else                     | raises `ArgumentError`                    |
+
+  `build_fun` is any 1-arity function — a `build_*` function for in-memory associations, or an
+  `insert_*` function when the association must be persisted.
+
+  ## Options
+
+  - `:struct` — the struct module a passed-in struct must match; any other struct type raises.
+    Recommended whenever the association has a known type: without it, a struct of the wrong
+    type is reused without complaint.
+  - `:inherit` — default params for the built association (default: `%{}`). Used as the
+    `build_fun` argument when building, and merged *under* a caller-supplied params map (the
+    caller's keys win).
+  - `:on_nil` — what an explicit `nil` value means: `:build` (default) treats it like a missing
+    key; `:keep` returns `nil`, for optional associations.
+
+  ## Examples
+
+      # Nothing passed — the default association is built
+      assoc(%{}, :author, &build_author_struct/1)
+
+      # A struct is reused as-is
+      assoc(%{author: %Author{name: "Ann"}}, :author, &build_author_struct/1, struct: Author)
+
+      # A params map builds the association from those params
+      assoc(%{author: %{name: "Ann"}}, :author, &build_author_struct/1, struct: Author)
+  """
+  def assoc(params, key, build_fun, opts \\ [])
+      when is_map(params) and is_function(build_fun, 1) and is_list(opts) do
+    inherit = Keyword.get(opts, :inherit, %{})
+    on_nil = Keyword.get(opts, :on_nil, :build)
+
+    if on_nil not in [:build, :keep] do
+      raise ArgumentError,
+            "invalid :on_nil option: #{inspect(on_nil)}. Expected :build (default) or :keep."
+    end
+
+    case Map.fetch(params, key) do
+      :error -> build_fun.(inherit)
+      {:ok, nil} when on_nil == :keep -> nil
+      {:ok, nil} -> build_fun.(inherit)
+      {:ok, value} -> resolve_assoc_value(value, key, build_fun, inherit, opts[:struct])
+    end
+  end
+
+  @doc """
+  Resolve a list of association values from factory params.
+
+  A missing key or `nil` resolves to `[]`. Otherwise the value must be a list, and each element
+  is resolved independently with `assoc/4` semantics: structs are reused (and type-checked
+  against `:struct` when given), params maps are built via `build_fun`, and anything else
+  raises. Mixed lists are fine.
+
+  Accepts the `:struct` and `:inherit` options from `assoc/4`.
+
+  ## Examples
+
+      deffactory post(params \\\\ %{}), struct: Post do
+        base_params = %{title: sequence("post")}
+
+        params =
+          Map.put(
+            params,
+            :comments,
+            assoc_list(params, :comments, &build_comment_struct/1, struct: Comment)
+          )
+
+        Map.merge(base_params, params)
+      end
+
+      # Two comments built from params, one reused
+      build_post_struct(%{comments: [%{body: "a"}, %{body: "b"}, existing_comment]})
+  """
+  def assoc_list(params, key, build_fun, opts \\ [])
+      when is_map(params) and is_function(build_fun, 1) and is_list(opts) do
+    inherit = Keyword.get(opts, :inherit, %{})
+
+    case Map.fetch(params, key) do
+      :error ->
+        []
+
+      {:ok, nil} ->
+        []
+
+      {:ok, list} when is_list(list) ->
+        Enum.map(list, &resolve_assoc_value(&1, key, build_fun, inherit, opts[:struct]))
+
+      {:ok, other} ->
+        raise ArgumentError,
+              "expected #{inspect(key)} to be a list of structs and/or params maps, " <>
+                "got: #{inspect(other)}"
+    end
+  end
+
+  defp resolve_assoc_value(%struct_type{} = value, key, _build_fun, _inherit, expected_struct) do
+    if is_nil(expected_struct) or struct_type == expected_struct do
+      value
+    else
+      raise ArgumentError,
+            "expected #{inspect(key)} to be a #{inspect(expected_struct)} struct or a params " <>
+              "map, got: #{inspect(value)}"
+    end
+  end
+
+  defp resolve_assoc_value(value, _key, build_fun, inherit, _expected_struct)
+       when is_map(value) do
+    build_fun.(Map.merge(inherit, value))
+  end
+
+  defp resolve_assoc_value(value, key, _build_fun, _inherit, _expected_struct) do
+    raise ArgumentError,
+          "expected #{inspect(key)} to be a struct, a params map, or nil, got: #{inspect(value)}"
+  end
 
   @doc """
   Evaluate lazy attributes in a map, struct, or keyword list.

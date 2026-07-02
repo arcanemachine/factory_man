@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `FactoryMan.assoc/4` and `FactoryMan.assoc_list/4` (auto-imported by `use FactoryMan`):
+  resolve association values from factory params. A missing key builds a default, a struct is
+  reused (type-checked against the `:struct` option, which raises on a mismatch), and a params
+  map builds the association from those params (merged over `:inherit` defaults). `assoc_list/4`
+  applies the same rules per element; `on_nil: :keep` supports optional associations. Replaces
+  the hand-written `case`/`Map.get_lazy` patterns previously shown in the docs, which silently
+  misbehaved when given a struct of the wrong type.
+
 ## [0.6.0] - 2026-07-02
 
 ### Added
