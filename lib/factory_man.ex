@@ -480,9 +480,9 @@ defmodule FactoryMan do
   To suppress the warning for a specific module or factory, add
   `suppress_duplicate_option_warning: true` to the options.
 
-  ## Debugging
+  ## Reflection and Debugging
 
-  Every factory module gets a `__factory_man__/1,2` reflection function showing resolved options:
+  Every factory module gets a `__factory_man__/1,2` reflection function:
 
   ```elixir
   iex> MyApp.Factory.__factory_man__(:opts)
@@ -490,6 +490,22 @@ defmodule FactoryMan do
 
   iex> MyApp.Factories.Users.__factory_man__(:opts, :user)
   [repo: MyApp.Repo, struct: User]
+
+  iex> MyApp.Factories.Users.__factory_man__(:factories)
+  [:user, :admin_user]
+  ```
+
+  `:factories` lists every factory and variant registered in the module (variants under their
+  full name), which enables runtime dispatch without string-building function names:
+
+  ```elixir
+  def build_any(factory_module, factory_name, params) do
+    if factory_name not in factory_module.__factory_man__(:factories) do
+      raise ArgumentError, "unknown factory \#{inspect(factory_name)}"
+    end
+
+    apply(factory_module, :"build_\#{factory_name}_struct", [params])
+  end
   ```
   """
 
@@ -563,8 +579,13 @@ defmodule FactoryMan do
 
       - `__factory_man__(:opts)` — the resolved options for this factory module
       - `__factory_man__(:opts, factory_name)` — the merged options for one factory or variant
+      - `__factory_man__(:factories)` — all factory and variant names registered in this
+        module (variants under their full name), in definition order
       """
       def __factory_man__(:opts), do: @parent_factory_opts
+
+      @factory_man_names @factory_man_registry |> Enum.map(&elem(&1, 0)) |> Enum.reverse()
+      def __factory_man__(:factories), do: @factory_man_names
 
       for {factory_man_name, factory_man_opts} <- @factory_man_registry do
         def __factory_man__(:opts, unquote(factory_man_name)), do: unquote(factory_man_opts)

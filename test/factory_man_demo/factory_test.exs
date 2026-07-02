@@ -26,4 +26,25 @@ defmodule FactoryManDemo.FactoryTest do
     assert Keyword.get(non_insertable_opts, :insert?) == false
     assert Keyword.get(non_insertable_opts, :repo) == FactoryManDemo.Repo
   end
+
+  test "__factory_man__(:factories) lists factories and variants in definition order" do
+    factories = ChildFactory.__factory_man__(:factories)
+
+    # Factories appear under their own name, variants under their full name
+    assert :user in factories
+    assert :admin_user in factories
+    # The :as option determines the registered variant name
+    assert :mod in factories
+    refute :moderator_user in factories
+    # A variant of a variant is registered too
+    assert :senior_admin_user in factories
+
+    # Definition order: :user is defined before its variants
+    assert Enum.find_index(factories, &(&1 == :user)) <
+             Enum.find_index(factories, &(&1 == :admin_user))
+  end
+
+  test "__factory_man__(:factories) is empty for a factory module without factories" do
+    assert FactoryManDemo.Factory.__factory_man__(:factories) == []
+  end
 end

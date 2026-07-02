@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `__factory_man__(:factories)` reflection: lists every factory and variant name registered in
+  a module (variants under their full name), in definition order. Enables runtime dispatch —
+  selecting and calling factories by name — without string-building function names.
 - `FactoryMan.assoc/4` and `FactoryMan.assoc_list/4` (auto-imported by `use FactoryMan`):
   resolve association values from factory params. A missing key builds a default, a struct is
   reused (type-checked against the `:struct` option, which raises on a mismatch), and a params
