@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `deffactory` counterparts — when the factory head has a default argument — and call the item
   builder with its actual default instead of always passing `%{}`. Variants of factories whose
   argument has no default no longer get the 1-arity list convenience.
+- Duplicate option warnings are now emitted with `IO.warn` instead of `Logger.warning`, so they
+  carry file/line attribution and are caught by `--warnings-as-errors`.
 
 ### Fixed
 

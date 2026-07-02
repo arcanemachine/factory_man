@@ -593,11 +593,11 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
   # ── __using__/1 duplicate option warning ───────────────────────
 
   describe "__using__/1 duplicate option warning" do
-    import ExUnit.CaptureLog
+    import ExUnit.CaptureIO
 
     test "warns when child module specifies the same option as parent" do
       log =
-        capture_log(fn ->
+        capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule DupModParent do
             use FactoryMan, repo: SomeRepo
@@ -616,7 +616,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "does not warn when child overrides with a different value" do
       log =
-        capture_log(fn ->
+        capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule DiffValParent do
             use FactoryMan, repo: RepoA
@@ -633,7 +633,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "does not warn when child specifies a new option not in parent" do
       log =
-        capture_log(fn ->
+        capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule NewOptParent do
             use FactoryMan, repo: SomeRepo
@@ -650,7 +650,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "suppresses warning with suppress_duplicate_option_warning: true" do
       log =
-        capture_log(fn ->
+        capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule SuppParent do
             use FactoryMan, repo: SomeRepo
@@ -670,7 +670,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "suppress_duplicate_option_warning does not propagate to grandchildren" do
       log =
-        capture_log(fn ->
+        capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule PropParent do
             use FactoryMan, repo: SomeRepo
@@ -881,11 +881,11 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
   # ── deffactory/2,3 duplicate option warning ────────────────────
 
   describe "deffactory/2,3 duplicate option warning" do
-    import ExUnit.CaptureLog
+    import ExUnit.CaptureIO
 
     test "warns when deffactory specifies the same option as its module" do
       log =
-        capture_log(fn ->
+        capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule FactDupMod do
             use FactoryMan, build_params?: false
@@ -904,7 +904,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "does not warn when deffactory overrides with a different value" do
       log =
-        capture_log(fn ->
+        capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule FactDiffMod do
             use FactoryMan, build_params?: false
@@ -921,7 +921,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "suppresses warning at factory level" do
       log =
-        capture_log(fn ->
+        capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule FactSuppMod do
             use FactoryMan, build_params?: false

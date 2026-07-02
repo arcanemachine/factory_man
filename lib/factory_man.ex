@@ -422,8 +422,6 @@ defmodule FactoryMan do
   ```
   """
 
-  require Logger
-
   # Keys that should not trigger duplicate option warnings
   @duplicate_warning_skip_keys [:extends, :suppress_duplicate_option_warning]
 
@@ -456,7 +454,8 @@ defmodule FactoryMan do
             FactoryMan._warn_duplicate_options(
               parent_opts,
               unquote(opts),
-              "module #{inspect(__MODULE__)}"
+              "module #{inspect(__MODULE__)}",
+              __ENV__
             )
 
             FactoryMan._merge_opts(parent_opts, unquote(opts))
@@ -585,7 +584,8 @@ defmodule FactoryMan do
       FactoryMan._warn_duplicate_options(
         parent_factory_opts,
         opts,
-        "factory :#{factory_name} in #{inspect(__MODULE__)}"
+        "factory :#{factory_name} in #{inspect(__MODULE__)}",
+        __ENV__
       )
 
       merged_opts = FactoryMan._merge_opts(parent_factory_opts, opts)
@@ -1155,20 +1155,23 @@ defmodule FactoryMan do
   This is a FactoryMan internal function — called from macro-generated code. Use the underscore
   prefix convention to signal that it is not part of the public API.
   """
-  def _warn_duplicate_options(parent_opts, child_opts, context) do
+  def _warn_duplicate_options(parent_opts, child_opts, context, env) do
     if Keyword.get(child_opts, :suppress_duplicate_option_warning) != true do
       child_opts
       |> Keyword.drop(@duplicate_warning_skip_keys)
       |> Enum.each(fn {key, value} ->
         if Keyword.has_key?(parent_opts, key) and Keyword.get(parent_opts, key) == value do
-          Logger.warning("""
-          FactoryMan: duplicate option in #{context}
+          IO.warn(
+            """
+            FactoryMan: duplicate option in #{context}
 
-          The option `#{inspect(key)}: #{inspect(value)}` is already defined by the parent \
-          factory with the same value. This is redundant and can be removed.
+            The option `#{inspect(key)}: #{inspect(value)}` is already defined by the parent \
+            factory with the same value. This is redundant and can be removed.
 
-          To suppress this warning, add `suppress_duplicate_option_warning: true` to the options.\
-          """)
+            To suppress this warning, add `suppress_duplicate_option_warning: true` to the options.\
+            """,
+            env
+          )
         end
       end)
     end
