@@ -13,7 +13,7 @@ Add FactoryMan to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:factory_man, "~> 0.5.0", only: [:dev, :test]}
+    {:factory_man, "~> 0.6.0", only: [:dev, :test]}
   ]
 end
 ```
