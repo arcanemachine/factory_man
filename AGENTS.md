@@ -64,10 +64,10 @@ end
 
 Key rules:
 - With `struct:`, the factory body must return a **map** (not a struct) containing only the
-  struct's fields, unless using `build_params?: false`
-- With `build_params?: false`, the body returns a **struct** directly (skips `struct!()`);
+  struct's fields, unless using `body: :struct`
+- With `body: :struct`, the body returns a **struct** directly (skips `struct!()`);
   params functions are still generated, derived from the struct
-- `build_params?: false` is ignored for non-struct factories — their `build_*` functions are always generated
+- `body: :struct` is ignored for non-struct factories — their `build_*` functions are always generated
 - Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
 - You must merge `params` yourself — FactoryMan does not auto-merge
 - Lazy evaluation (0-arity and 1-arity functions) works in both maps and keyword lists
@@ -113,7 +113,7 @@ insert_user (calls build_user_struct internally):
 - **Don't forget `Map.merge(base_params, params)`** at the end of every struct/map factory body
 - **Don't use `build_user()` for struct factories** — the correct names include the type:
   `build_user_struct()`, `build_user_params()`, `insert_user()`. Non-struct factories use `build_*()` directly.
-- **Don't create structs in the factory body** (unless using `build_params?: false`). Return a plain map — the generated `build_*_struct` function handles struct conversion
+- **Don't create structs in the factory body** (unless using `body: :struct`). Return a plain map — the generated `build_*_struct` function handles struct conversion
 - **Don't define factories outside of modules that `use FactoryMan`**
 
 ### Lazy Evaluation

@@ -108,7 +108,7 @@ end
 
 When using the `:struct` option, the factory body must return a plain map — the generated
 `build_*_struct` function converts it to a struct. If you need to return a struct directly, use
-`build_params?: false` instead.
+`body: :struct` instead.
 Without `:struct`, the body can return any value (see [Arbitrary value factories](#arbitrary-value-factories)).
 
 You can name the parameter anything and use pattern matching:
@@ -167,13 +167,13 @@ end
 > FactoryMan can detect when a struct is an Ecto embedded schema, and will not generate `insert_*`
 > functions for embedded schemas.
 
-### Direct struct factories (`build_params?: false`)
+### Direct struct factories (`body: :struct`)
 
-For factories that need full control over struct construction, set `build_params?: false`. The body
+For factories that need full control over struct construction, set `body: :struct`. The body
 returns a **struct** directly (params functions are still generated, derived from the struct):
 
 ```elixir
-deffactory invoice(params \\ %{}), struct: Invoice, build_params?: false do
+deffactory invoice(params \\ %{}), struct: Invoice, body: :struct do
   customer =
     case params[:customer] do
       %Customer{} = c -> c
@@ -188,8 +188,8 @@ end
 # Generates: build_invoice_struct, build_invoice_params, insert_invoice (and _list variants)
 ```
 
-`build_params?: false` can also be set at the module level with
-`use FactoryMan, build_params?: false`. Non-struct factories in the same module are unaffected;
+`body: :struct` can also be set at the module level with
+`use FactoryMan, body: :struct`. Non-struct factories in the same module are unaffected;
 their `build_*` functions are always generated.
 
 ## Generated Functions
@@ -214,11 +214,11 @@ What gets generated depends on the options:
 | `struct: User` (default) | Yes    | Yes    | Yes    |
 | No `struct:` option      | Yes    | No     | No     |
 | `insert?: false`         | Yes    | Yes    | No     |
-| `build_params?: false`   | Yes    | Yes    | Yes    |
+| `body: :struct`          | Yes    | Yes    | Yes    |
 | Embedded schema          | Yes    | Yes    | No     |
 
 Params functions are derived from the built struct, so they exist for every struct factory —
-including `build_params?: false` factories, whose body returns a struct directly.
+including `body: :struct` factories, whose body returns a struct directly.
 
 ## Params Functions
 

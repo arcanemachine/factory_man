@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** The `build_params?` option is renamed to `body`, with values `:params` (default)
+  and `:struct` (the factory body returns a struct directly; formerly `build_params?: false`).
+  Since the params unification, params functions are always generated, so the old name's
+  "generate params builders?" reading had become misleading — the option only controls what the
+  factory body returns. The old key raises a compile-time `ArgumentError`, as does an
+  unrecognized `body` value.
 - **Breaking:** `params_for_*` and `string_params_for_*` are renamed to `build_*_params` and
   `build_*_string_params`, replacing the former raw params builders. For struct factories,
   `build_*_params` now builds the struct and converts it to a clean map (Ecto metadata stripped

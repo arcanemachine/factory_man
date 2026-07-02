@@ -351,7 +351,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       refute function_exported?(ChildFactory, :insert_non_insertable, 0)
     end
 
-    test "build_params?: false still generates params functions derived from the struct" do
+    test "body: :struct still generates params functions derived from the struct" do
       assert function_exported?(ChildFactory, :build_raw_user_struct, 0)
       assert function_exported?(ChildFactory, :build_raw_user_struct, 1)
 
@@ -360,24 +360,24 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert String.starts_with?(params.username, "raw-user-")
     end
 
-    test "build_params?: false factory body returns struct directly" do
+    test "body: :struct factory body returns struct directly" do
       user = ChildFactory.build_raw_user_struct()
       assert %User{} = user
       assert String.starts_with?(user.username, "raw-user-")
     end
 
-    test "build_params?: false factory accepts caller overrides" do
+    test "body: :struct factory accepts caller overrides" do
       user = ChildFactory.build_raw_user_struct(%{username: "custom"})
       assert user.username == "custom"
     end
 
-    test "build_params?: false is a no-op for non-struct factories" do
+    test "body: :struct is a no-op for non-struct factories" do
       [{mod, _}] =
         Code.compile_string("""
-        defmodule TestBuildParamsFalseNoStruct do
+        defmodule TestBodyStructNoStruct do
           use FactoryMan
 
-          deffactory thing(params \\\\ %{}), build_params?: false do
+          deffactory thing(params \\\\ %{}), body: :struct do
             Map.merge(%{name: "hello"}, params)
           end
         end
@@ -387,11 +387,11 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert mod.build_thing(%{name: "world"}) == %{name: "world"}
     end
 
-    test "module-level build_params?: false works with mixed struct and non-struct factories" do
+    test "module-level body: :struct works with mixed struct and non-struct factories" do
       [{mod, _}] =
         Code.compile_string("""
-        defmodule TestMixedBuildParamsFalse do
-          use FactoryMan, build_params?: false
+        defmodule TestMixedBodyStruct do
+          use FactoryMan, body: :struct
 
           deffactory plain(params \\\\ %{}) do
             Map.merge(%{name: "plain"}, params)
@@ -407,9 +407,37 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       # Non-struct factory generates build_* as normal
       assert mod.build_plain() == %{name: "plain"}
 
-      # Struct factory with build_params?: false has a struct builder and derived params
+      # Struct factory with body: :struct has a struct builder and derived params
       assert %FactoryManDemo.Users.User{username: "raw"} = mod.build_raw_struct()
       assert %{username: "raw"} = mod.build_raw_params()
+    end
+
+    test "the removed build_params? option raises a compile-time error" do
+      assert_raise ArgumentError, ~r/:build_params\? option has been renamed to :body/, fn ->
+        Code.compile_string("""
+        defmodule TestOldBuildParamsKey do
+          use FactoryMan
+
+          deffactory thing(params \\\\ %{}), struct: FactoryManDemo.Users.User, build_params?: false do
+            params
+          end
+        end
+        """)
+      end
+    end
+
+    test "an invalid :body value raises a compile-time error" do
+      assert_raise ArgumentError, ~r/invalid :body option: :map/, fn ->
+        Code.compile_string("""
+        defmodule TestInvalidBodyValue do
+          use FactoryMan
+
+          deffactory thing(params \\\\ %{}), struct: FactoryManDemo.Users.User, body: :map do
+            params
+          end
+        end
+        """)
+      end
     end
 
     test "hooks transform factory output" do
@@ -633,7 +661,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
           end
 
           defmodule NewOptChild do
-            use FactoryMan, extends: NewOptParent, build_params?: false
+            use FactoryMan, extends: NewOptParent, body: :struct
           end
           """)
         end)
@@ -881,9 +909,9 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
         capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule FactDupMod do
-            use FactoryMan, build_params?: false
+            use FactoryMan, body: :struct
 
-            deffactory thing(params \\\\ %{}), struct: SomeStruct, build_params?: false do
+            deffactory thing(params \\\\ %{}), struct: SomeStruct, body: :struct do
               params
             end
           end
@@ -892,7 +920,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
       assert log =~ "FactoryMan: duplicate option"
       assert log =~ "factory :thing"
-      assert log =~ ":build_params?"
+      assert log =~ ":body"
     end
 
     test "does not warn when deffactory overrides with a different value" do
@@ -900,9 +928,9 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
         capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule FactDiffMod do
-            use FactoryMan, build_params?: false
+            use FactoryMan, body: :struct
 
-            deffactory thing(params \\\\ %{}), struct: SomeStruct, build_params?: true do
+            deffactory thing(params \\\\ %{}), struct: SomeStruct, body: :params do
               params
             end
           end
@@ -917,11 +945,11 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
         capture_io(:stderr, fn ->
           Code.compile_string("""
           defmodule FactSuppMod do
-            use FactoryMan, build_params?: false
+            use FactoryMan, body: :struct
 
             deffactory thing(params \\\\ %{}),
               struct: SomeStruct,
-              build_params?: false,
+              body: :struct,
               suppress_duplicate_option_warning: true do
               params
             end

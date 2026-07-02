@@ -44,11 +44,11 @@ defmodule FactoryMan do
   | `struct: User` (default) | Yes    | Yes    | Yes    |
   | No `struct:` option      | Yes    | No     | No     |
   | `insert?: false`         | Yes    | Yes    | No     |
-  | `build_params?: false`   | Yes    | Yes    | Yes    |
+  | `body: :struct`          | Yes    | Yes    | Yes    |
   | Embedded schema          | Yes    | Yes    | No     |
 
   Params functions are derived from the built struct, so they exist for every struct factory —
-  including `build_params?: false` factories, whose body returns a struct directly.
+  including `body: :struct` factories, whose body returns a struct directly.
 
   ## Defining Factories
 
@@ -160,9 +160,9 @@ defmodule FactoryMan do
 
   - `:struct` — Ecto schema module (enables struct, params, and insert functions)
   - `:insert?` — Set to `false` to skip insert functions
-  - `:build_params?` — Set to `false` to have the factory body return a struct directly instead
-    of a params map. Params functions are still generated (derived from the struct). Ignored for
-    non-struct factories.
+  - `:body` — What the factory body returns: `:params` (default, a params map) or `:struct`
+    (a struct built directly by the body). Params functions are generated either way (derived
+    from the struct). Ignored for non-struct factories.
   - `:hooks` — Merged with module-level hooks
   - `:suppress_duplicate_option_warning` — Suppress warnings for redundant options
 
@@ -325,13 +325,13 @@ defmodule FactoryMan do
   Embedded schemas generate `build_*_params` and `build_*_struct` functions only (as well as
   the matching `*_list` functions), but do not generate any `insert_*` functions.
 
-  ## Direct Struct Factories (`build_params?: false`)
+  ## Direct Struct Factories (`body: :struct`)
 
-  For complex factories that need full control over struct construction, set `build_params?: false`.
+  For complex factories that need full control over struct construction, set `body: :struct`.
   The factory body returns a struct directly instead of a params map:
 
   ```elixir
-  deffactory invoice(params \\\\ %{}), struct: Invoice, build_params?: false do
+  deffactory invoice(params \\\\ %{}), struct: Invoice, body: :struct do
     customer =
       case params[:customer] do
         %Customer{} = customer -> customer
@@ -350,8 +350,8 @@ defmodule FactoryMan do
   The `before_build_params`, `after_build_params`, and `before_build_struct` hooks are skipped
   since there is no params-to-struct conversion stage.
 
-  `build_params?: false` can also be set at the module level with `use FactoryMan, build_params?: false`,
-  then overridden per-factory with `build_params?: true` if needed. Non-struct factories in the
+  `body: :struct` can also be set at the module level with `use FactoryMan, body: :struct`,
+  then overridden per-factory with `body: :params` if needed. Non-struct factories in the
   same module are unaffected — their `build_*` functions are always generated.
 
   ## Variant Factories (`defvariant`)
@@ -533,9 +533,9 @@ defmodule FactoryMan do
     params, and insert functions.
   - `:insert?` - Set to `false` to skip generating insert functions (default: `true` when
     repo is configured and struct is insertable)
-  - `:build_params?` - Set to `false` to have the factory body return a struct directly instead
-    of a params map (default: `true`). Params functions are still generated (derived from the
-    struct). Ignored for non-struct factories.
+  - `:body` - What the factory body returns: `:params` (default, a params map) or `:struct`
+    (a struct built directly by the body). Params functions are generated either way (derived
+    from the struct). Ignored for non-struct factories.
   - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
   - `:suppress_duplicate_option_warning` - Set to `true` to suppress warnings when this
     factory specifies an option already defined by the module with the same value
@@ -618,6 +618,20 @@ defmodule FactoryMan do
                 "If you don't want struct functions, omit the :struct option."
       end
 
+      if Keyword.has_key?(merged_opts, :build_params?) do
+        raise ArgumentError,
+              "the :build_params? option has been renamed to :body. Use `body: :struct` to have " <>
+                "the factory body return a struct directly (was build_params?: false), or remove " <>
+                "the option for the default params-map body (was build_params?: true)."
+      end
+
+      body = Keyword.get(merged_opts, :body, :params)
+
+      if body not in [:params, :struct] do
+        raise ArgumentError,
+              "invalid :body option: #{inspect(body)}. Expected :params (default) or :struct."
+      end
+
       # Extract hooks - used many times throughout
       hooks = Keyword.get(merged_opts, :hooks, [])
 
@@ -661,7 +675,7 @@ defmodule FactoryMan do
         # Head declaration (simple variable with default if present)
         def unquote({build_struct_fn, [], [head_ast]})
 
-        if merged_opts[:build_params?] != false do
+        if body == :params do
           # Standard: the body returns a params map that is run through the params-stage hooks
           # and lazy evaluation, then converted with struct!/2.
           def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
@@ -678,7 +692,7 @@ defmodule FactoryMan do
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
           end
         else
-          # build_params?: false — the body returns the struct directly.
+          # body: :struct — the body returns the struct directly.
           def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
             unquote(block)
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
