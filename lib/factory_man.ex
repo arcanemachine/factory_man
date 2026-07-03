@@ -1063,41 +1063,14 @@ defmodule FactoryMan do
     end
   end
 
-  # Extracts all necessary components from the factory_head AST recursively.
-  # Handles: params, params \\ %{}, %{key: val} = params, and variations.
-  defp extract_factory_args(factory_head) do
-    # First, extract the factory name and the argument list
-    {name, args} = extract_name_and_args(factory_head)
-
-    # Now recursively process the argument to extract all components
-    process_arg(args, name)
+  # Extracts the factory name and argument AST projections from the factory head
+  # (e.g. `user(params \\ %{})`). Handles: params, params \\ %{}, %{key: val} = params,
+  # and variations.
+  defp extract_factory_args({name, _, [arg_ast]}) when is_atom(name) do
+    Map.put(parse_arg_ast(arg_ast), :name, name)
   end
 
-  # Extract factory name and argument list from the head
-  defp extract_name_and_args({name, _, args}) when is_list(args) do
-    # Factory head is like: user(params) or user(params \\ %{})
-    {name, args}
-  end
-
-  # Process the argument AST recursively
-  defp process_arg([arg_ast], name) do
-    # Recursively walk the AST to extract components
-    components = walk_arg_ast(arg_ast)
-
-    # Build the result map
-    %{
-      name: name,
-      head_ast: components.head_ast,
-      user_var: components.user_var,
-      arg_no_default: components.arg_no_default,
-      has_pattern_match: components.has_pattern_match,
-      has_default: components.has_default,
-      plain_var: components.plain_var
-    }
-  end
-
-  # Catch-all for invalid argument counts
-  defp process_arg(args, _name) when is_list(args) do
+  defp extract_factory_args({name, _, args}) when is_atom(name) and is_list(args) do
     raise ArgumentError, """
     Invalid factory definition: expected exactly one argument, got #{length(args)}
 
@@ -1109,93 +1082,69 @@ defmodule FactoryMan do
     """
   end
 
-  # Recursively walk the argument AST and extract all necessary components
-  defp walk_arg_ast(ast) do
-    do_walk_arg_ast(ast, %{
-      head_ast: nil,
-      user_var: nil,
-      arg_no_default: nil,
+  # Parses the single argument's AST into the projections used by the code generators:
+  #
+  # - :head_ast — argument as written for bodiless heads (default kept, pattern dropped)
+  # - :user_var — the argument variable, for referencing in wrapper bodies
+  # - :arg_no_default — argument for implementation clauses (pattern kept, default dropped)
+  # - :has_pattern_match / :has_default — gate which convenience arities are generated
+  # - :plain_var — the argument variable AST as written
+
+  # Pattern match with default - %{key: val} = params \\ %{}
+  defp parse_arg_ast({:\\, _, [{:=, _, [_pattern, var_ast]} = pattern, default]}) do
+    %{
+      # For function head, use just the variable with default (no pattern match)
+      head_ast: {:\\, [], [plain_var(var_ast), default]},
+      user_var: plain_var(var_ast),
+      # Keep the full pattern for implementation
+      arg_no_default: pattern,
+      has_pattern_match: true,
+      has_default: true,
+      plain_var: var_ast
+    }
+  end
+
+  # Variable with default - params \\ %{}
+  defp parse_arg_ast({:\\, _, [var_ast, _default]} = ast) do
+    %{
+      # Keep the full \\ expression for head
+      head_ast: ast,
+      user_var: plain_var(var_ast),
+      arg_no_default: var_ast,
+      has_pattern_match: false,
+      has_default: true,
+      plain_var: var_ast
+    }
+  end
+
+  # Pattern match without default - %{key: val} = params
+  defp parse_arg_ast({:=, _, [_pattern, var_ast]} = ast) do
+    %{
+      # Use just the var for head (no destructuring)
+      head_ast: plain_var(var_ast),
+      user_var: plain_var(var_ast),
+      # Keep the full pattern for implementation
+      arg_no_default: ast,
+      has_pattern_match: true,
+      has_default: false,
+      plain_var: var_ast
+    }
+  end
+
+  # Simple variable - params
+  defp parse_arg_ast({var_name, _, _} = ast) when is_atom(var_name) do
+    %{
+      head_ast: ast,
+      user_var: plain_var(ast),
+      arg_no_default: ast,
       has_pattern_match: false,
       has_default: false,
-      plain_var: nil
-    })
-  end
-
-  # Case 1: Pattern match with default - %{key: val} = params \\ %{}
-  # AST: {:\\, _, [{:=, _, [pattern, {var, _, _}]}, default]}
-  defp do_walk_arg_ast({:\\, _, [{:=, _, [_pattern, var_ast]} = pattern, default]}, acc) do
-    var_name = extract_var_name(var_ast)
-    # For function head, use just the variable with default (no pattern match)
-    head_ast = {:\\, [], [Macro.var(var_name, nil), default]}
-    user_var = Macro.var(var_name, nil)
-
-    %{
-      acc
-      | head_ast: head_ast,
-        user_var: user_var,
-        # Keep the full pattern for implementation
-        arg_no_default: pattern,
-        has_pattern_match: true,
-        has_default: true,
-        plain_var: var_ast
-    }
-  end
-
-  # Case 2: Variable with default - params \\ %{}
-  # AST: {:\\, _, [{var, _, _}, default]}
-  defp do_walk_arg_ast({:\\, _, [var_ast, _default]} = ast, acc) do
-    var_name = extract_var_name(var_ast)
-    # Keep the full \\ expression for head
-    head_ast = ast
-    user_var = Macro.var(var_name, nil)
-
-    %{
-      acc
-      | head_ast: head_ast,
-        user_var: user_var,
-        arg_no_default: var_ast,
-        has_pattern_match: false,
-        has_default: true,
-        plain_var: var_ast
-    }
-  end
-
-  # Case 4: Pattern match without default - %{key: val} = params
-  # AST: {:=, _, [pattern, {var, _, _}]}
-  defp do_walk_arg_ast({:=, _, [_pattern, var_ast]} = ast, acc) do
-    var_name = extract_var_name(var_ast)
-    # Use just the var for head (no destructuring)
-    head_ast = Macro.var(var_name, nil)
-    user_var = Macro.var(var_name, nil)
-
-    %{
-      acc
-      | head_ast: head_ast,
-        user_var: user_var,
-        # Keep the full pattern for implementation
-        arg_no_default: ast,
-        has_pattern_match: true,
-        plain_var: var_ast
-    }
-  end
-
-  # Case 5: Simple variable - params
-  # AST: {var, _, _}
-  defp do_walk_arg_ast({var_name, _, _} = ast, acc) when is_atom(var_name) do
-    user_var = Macro.var(var_name, nil)
-
-    %{
-      acc
-      | head_ast: ast,
-        user_var: user_var,
-        arg_no_default: ast,
-        has_pattern_match: false,
-        plain_var: ast
+      plain_var: ast
     }
   end
 
   # Catch-all for unsupported patterns
-  defp do_walk_arg_ast(ast, _acc) do
+  defp parse_arg_ast(ast) do
     raise ArgumentError, """
     Unsupported factory argument pattern: #{Macro.to_string(ast)}
 
@@ -1209,8 +1158,8 @@ defmodule FactoryMan do
     """
   end
 
-  # Extract variable name from a variable AST node
-  defp extract_var_name({var_name, _, _}) when is_atom(var_name), do: var_name
+  # The bare variable from a variable AST node, stripped of any context metadata
+  defp plain_var({var_name, _, _}) when is_atom(var_name), do: Macro.var(var_name, nil)
 
   @doc """
   Resolve an association value from factory params.
