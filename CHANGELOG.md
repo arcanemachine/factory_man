@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `strict:` option for struct factories: `strict: true` raises an `ArgumentError` when a caller
+  passes param keys that are not fields of the `:struct` option's struct, catching typos at the
+  factory boundary. Previously a typo surfaced late (`struct!/2`) for merge-style factories and
+  never for `body: :struct` factories, whose bodies read params selectively. Use
+  `strict: [allow: [...]]` to permit specific non-field keys (e.g. inputs used only to derive
+  other fields). Cascades from `use FactoryMan` like other options; ignored for non-struct
+  factories (matching `body:`). The check runs at build entry, so params builders, inserts,
+  lists, and variants are all covered.
+
 ## [0.8.0] - 2026-07-03
 
 ### Added

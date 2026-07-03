@@ -74,6 +74,8 @@ Key rules:
 - You must merge `params` yourself — FactoryMan does not auto-merge
 - Lazy evaluation (0-arity and 1-arity functions) works in both maps and keyword lists
 - Factory names are atoms — the generated functions use that name
+- Opt-in `strict: true` (or `strict: [allow: [:extra_key]]`) rejects unknown param keys at
+  build entry for struct factories; ignored for non-struct factories. Cascades from module level.
 
 ### Generated Function Naming
 

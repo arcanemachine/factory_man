@@ -185,7 +185,47 @@ defmodule FactoryMan do
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct). Ignored for non-struct factories.
   - `:hooks` — Merged with module-level hooks
+  - `:strict` — Reject unknown param keys at the factory boundary (see Strict Params below)
   - `:suppress_duplicate_option_warning` — Suppress warnings for redundant options
+
+  Options that only apply to struct factories (`:body`, `:strict`) cascade harmlessly from the
+  module level — they are ignored by non-struct factories.
+
+  ## Strict Params
+
+  Factories can silently ignore misspelled param keys: merge-style bodies surface the typo late
+  (in `struct!/2`, with an unhelpful message), and `body: :struct` bodies — which read params
+  selectively — never surface it at all. Opt in to `strict: true` to reject unknown keys up
+  front:
+
+  ```elixir
+  deffactory user(params \\\\ %{}), struct: User, strict: true do
+    base_params = %{username: sequence("user")}
+
+    Map.merge(base_params, params)
+  end
+
+  build_user_struct(%{usernme: "typo"})
+  # ** (ArgumentError) unknown params [:usernme] for strict factory :user ...
+  ```
+
+  The check runs when building starts — before hooks and the factory body — against the keys of
+  the `:struct` option's struct (which includes virtual fields and association keys). All derived
+  functions (params builders, inserts, lists, and variants of the factory) are covered.
+
+  When a factory intentionally accepts keys that are not struct fields (e.g. an input used only
+  to derive other fields), allow them explicitly:
+
+  ```elixir
+  deffactory invoice(params \\\\ %{}), struct: Invoice, strict: [allow: [:line_item_count]],
+    body: :struct do
+    %Invoice{total: Map.get(params, :line_item_count, 1) * 100}
+  end
+  ```
+
+  Like other options, `:strict` can be set module-wide with `use FactoryMan, strict: true` and
+  overridden per-factory (e.g. `strict: false`). Non-struct factories have no reference field
+  set, so the option is ignored for them.
 
   ## Hooks
 
@@ -683,6 +723,9 @@ defmodule FactoryMan do
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct). Ignored for non-struct factories.
   - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
+  - `:strict` - Set to `true` to raise on param keys that are not fields of the `:struct`
+    option's struct, or `[allow: [...]]` to permit specific extra keys (see the Strict Params
+    section). Ignored for non-struct factories.
   - `:suppress_duplicate_option_warning` - Set to `true` to suppress warnings when this
     factory specifies an option already defined by the module with the same value
 
@@ -779,6 +822,30 @@ defmodule FactoryMan do
               "invalid :body option: #{inspect(body)}. Expected :params (default) or :struct."
       end
 
+      # Compile-time parse of :strict into `false` (disabled) or a list of allowed extra keys
+      strict =
+        case Keyword.get(merged_opts, :strict, false) do
+          false ->
+            false
+
+          true ->
+            []
+
+          [allow: allow] when is_list(allow) ->
+            if Enum.all?(allow, &is_atom/1) do
+              allow
+            else
+              raise ArgumentError,
+                    "invalid :strict option: [allow: #{inspect(allow)}]. " <>
+                      "Allowed extra keys must be atoms."
+            end
+
+          other ->
+            raise ArgumentError,
+                  "invalid :strict option: #{inspect(other)}. " <>
+                    "Expected true, false (default), or [allow: [keys]]."
+        end
+
       # Extract hooks - used many times throughout
       hooks = Keyword.get(merged_opts, :hooks, [])
 
@@ -828,6 +895,13 @@ defmodule FactoryMan do
           # Standard: the body returns a params map that is run through the params-stage hooks
           # and lazy evaluation, then converted with struct!/2.
           def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
+            FactoryMan._validate_strict_params!(
+              unquote(user_var),
+              unquote(strict),
+              unquote(merged_opts[:struct]),
+              unquote(factory_name)
+            )
+
             unquote(user_var) =
               FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(
                 unquote(user_var)
@@ -843,6 +917,13 @@ defmodule FactoryMan do
         else
           # body: :struct — the body returns the struct directly.
           def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
+            FactoryMan._validate_strict_params!(
+              unquote(user_var),
+              unquote(strict),
+              unquote(merged_opts[:struct]),
+              unquote(factory_name)
+            )
+
             unquote(block)
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
           end
@@ -1449,6 +1530,37 @@ defmodule FactoryMan do
       &YourProject.Factories.Users.user_after_insert_handler/1
   """
   def get_hook_handler(hooks, hook), do: hooks[hook] || (&FactoryMan.fallback_hook_handler/1)
+
+  @doc """
+  Validate params against a strict factory's allowed keys.
+
+  `strict` is the compile-time-parsed `:strict` option: `false` (disabled) or a list of extra
+  allowed keys. Allowed keys are the struct's keys plus the extras; any other key raises.
+  Non-map params are passed through (they fail downstream the same way they would without
+  strict checking).
+
+  This is a FactoryMan internal function — called from macro-generated code. Use the underscore
+  prefix convention to signal that it is not part of the public API.
+  """
+  def _validate_strict_params!(params, false = _strict, _struct_module, _factory_name),
+    do: params
+
+  def _validate_strict_params!(params, strict, struct_module, factory_name)
+      when is_map(params) and is_list(strict) do
+    allowed = (Map.keys(struct_module.__struct__()) -- [:__struct__, :__meta__]) ++ strict
+    unknown = Map.keys(params) -- allowed
+
+    if unknown != [] do
+      raise ArgumentError,
+            "unknown params #{inspect(Enum.sort(unknown))} for strict factory " <>
+              ":#{factory_name} (struct #{inspect(struct_module)}). " <>
+              "Allowed keys: #{inspect(Enum.sort(allowed))}"
+    end
+
+    params
+  end
+
+  def _validate_strict_params!(params, _strict, _struct_module, _factory_name), do: params
 
   @doc """
   Merge child factory options into parent options.
