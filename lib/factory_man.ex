@@ -276,7 +276,7 @@ defmodule FactoryMan do
 
   ### Examples
 
-  **Reset associations after insert** (most common hook usage):
+  **Reset associations after insert:**
 
   ```elixir
   defmodule MyApp.Factory do

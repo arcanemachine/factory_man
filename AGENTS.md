@@ -43,6 +43,7 @@ test/
     assoc_test.exs
     extends_test.exs
     sequence_test.exs
+    strict_params_test.exs
   factory_man_demo/
     factory_test.exs
     factory/
@@ -72,6 +73,8 @@ Key rules:
 - `body: :struct` is ignored for non-struct factories — their `build_*` functions are always generated
 - Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
 - You must merge `params` yourself — FactoryMan does not auto-merge
+- Resolve associations with `assoc/4`/`assoc_list/4` (accepts a prebuilt struct, a params map,
+  or nothing; `on_missing: nil` + `on_nil: :keep` for optional associations)
 - Lazy evaluation (0-arity and 1-arity functions) works in both maps and keyword lists
 - Factory names are atoms — the generated functions use that name
 - Opt-in `strict: true` (or `strict: [allow: [:extra_key]]`) rejects unknown param keys at
