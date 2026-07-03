@@ -244,6 +244,48 @@ defmodule FactoryMan.Codegen do
     block([conveniences, implementation_doc, implementations])
   end
 
+  @doc """
+  `insert_*_struct` for `deffactory`: inserts an already-built struct through the factory's
+  insert pipeline (`before_insert` hook, repo insert, `after_insert` hook). `insert_*` delegates
+  here after building, so the pipeline is defined in one place.
+  """
+  def insert_struct_fns(insert_struct_fn, struct_module, repo, hooks, factory_name) do
+    quote do
+      @doc unquote(insert_struct_doc(struct_module, factory_name))
+      def unquote(insert_struct_fn)(%unquote(struct_module){} = struct, repo_insert_opts \\ [])
+          when is_list(repo_insert_opts) do
+        struct
+        |> then(&FactoryMan.get_hook_handler(unquote(hooks), :before_insert).(&1))
+        |> unquote(repo).insert!(repo_insert_opts)
+        |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_insert).(&1))
+      end
+    end
+  end
+
+  @doc """
+  `insert_*_struct` for `defvariant`: delegates to the base factory's `insert_*_struct`, since
+  a variant's preprocessor has no role once the struct is built.
+  """
+  def insert_struct_delegate_fns(
+        insert_struct_fn,
+        struct_module,
+        base_insert_struct_fn,
+        base_factory_name
+      ) do
+    quote do
+      @doc unquote(insert_struct_doc(struct_module, base_factory_name))
+      def unquote(insert_struct_fn)(%unquote(struct_module){} = struct, repo_insert_opts \\ [])
+          when is_list(repo_insert_opts) do
+        unquote(base_insert_struct_fn)(struct, repo_insert_opts)
+      end
+    end
+  end
+
+  defp insert_struct_doc(struct_module, pipeline_name) do
+    "Inserts an already-built `#{inspect(struct_module)}` through the `:#{pipeline_name}` " <>
+      "factory's insert pipeline (`before_insert` hook, repo insert, `after_insert` hook)."
+  end
+
   defp block(parts) do
     {:__block__, [], Enum.reject(parts, &is_nil/1)}
   end
