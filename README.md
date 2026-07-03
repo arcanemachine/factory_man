@@ -6,6 +6,8 @@ generates functions for building params, structs, and database records.
 Inspired by [ExMachina](https://hex.pm/packages/ex_machina), but with a different API and feature
 set.
 
+Looking for recipes? See the [Cookbook](COOKBOOK.md).
+
 ## Installation
 
 Add FactoryMan to your `mix.exs` dependencies:
