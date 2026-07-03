@@ -142,23 +142,37 @@ defmodule FactoryMan.AssocTest do
     end
   end
 
-  describe "import via use FactoryMan" do
-    test "assoc/3,4 and assoc_list/3,4 are callable unqualified in factory bodies" do
+  describe "use FactoryMan import surface" do
+    test "qualified assoc/assoc_list work in factory bodies" do
       [{mod, _}] =
         Code.compile_string("""
-        defmodule FactoryMan.AssocTest.ImportedFactory do
+        defmodule FactoryMan.AssocTest.QualifiedFactory do
           use FactoryMan
 
           deffactory post(params \\\\ %{}) do
             %{
-              author: assoc(params, :author, fn p -> Map.put_new(p, :name, "Ann") end),
-              tags: assoc_list(params, :tags, fn p -> p end)
+              author: FactoryMan.assoc(params, :author, fn p -> Map.put_new(p, :name, "Ann") end),
+              tags: FactoryMan.assoc_list(params, :tags, fn p -> p end)
             }
           end
         end
         """)
 
       assert %{author: %{name: "Ann"}, tags: []} = mod.build_post()
+    end
+
+    test "helper functions are not imported (bare assoc does not compile)" do
+      assert_raise CompileError, fn ->
+        Code.compile_string("""
+        defmodule FactoryMan.AssocTest.BareFactory do
+          use FactoryMan
+
+          deffactory post(params \\\\ %{}) do
+            %{author: assoc(params, :author, fn p -> p end)}
+          end
+        end
+        """)
+      end
     end
   end
 end

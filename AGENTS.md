@@ -73,8 +73,10 @@ Key rules:
 - `body: :struct` is ignored for non-struct factories — their `build_*` functions are always generated
 - Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
 - You must merge `params` yourself — FactoryMan does not auto-merge
-- Resolve associations with `assoc/4`/`assoc_list/4` (accepts a prebuilt struct, a params map,
-  or nothing; `on_missing: nil` + `on_nil: :keep` for optional associations)
+- Resolve associations with `FactoryMan.assoc/4`/`FactoryMan.assoc_list/4` (accepts a prebuilt
+  struct, a params map, or nothing; `on_missing: nil` + `on_nil: :keep` for optional associations)
+- Helper functions are **not** imported by `use FactoryMan` — always call them qualified
+  (`FactoryMan.assoc(...)`, `FactoryMan.sequence(...)`). Only `deffactory`/`defvariant` are imported.
 - Lazy evaluation (0-arity and 1-arity functions) works in both maps and keyword lists
 - Factory names are atoms — the generated functions use that name
 - Opt-in `strict: true` (or `strict: [allow: [:extra_key]]`) rejects unknown param keys at
@@ -142,10 +144,10 @@ lazy fields from a 1-arity function — they'll still be function references, no
 ### Sequences
 
 ```elixir
-sequence("user")                                        # "user0", "user1", ...
-sequence(:email, fn n -> "user#{n}@example.com" end)    # custom formatter
-sequence(:role, ["admin", "user", "guest"])              # cycles through list
-sequence(:order, fn n -> "ORD-#{n}" end, start_at: 1000) # custom start
+FactoryMan.sequence("user")                                        # "user0", "user1", ...
+FactoryMan.sequence(:email, fn n -> "user#{n}@example.com" end)    # custom formatter
+FactoryMan.sequence(:role, ["admin", "user", "guest"])              # cycles through list
+FactoryMan.sequence(:order, fn n -> "ORD-#{n}" end, start_at: 1000) # custom start
 ```
 
 Reset in test setup: `FactoryMan.Sequence.reset()`

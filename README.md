@@ -34,9 +34,9 @@ defmodule MyApp.Factory do
   # Basic factory
   deffactory user(params \\ %{}), struct: User do
     base_params = %{
-      username: sequence("user"),
-      email: sequence(:email, fn n -> "user#{n}@example.com" end),
-      role: sequence(:role, ["admin", "mod", "user"]),
+      username: FactoryMan.sequence("user"),
+      email: FactoryMan.sequence(:email, fn n -> "user#{n}@example.com" end),
+      role: FactoryMan.sequence(:role, ["admin", "mod", "user"]),
       joined_at: fn -> DateTime.utc_now() end,
       display: fn user -> "#{user.username} (#{user.role})" end
     }
@@ -53,9 +53,9 @@ defmodule MyApp.Factory do
 
   # Associations: assoc/4 accepts a prebuilt struct, params to build one from, or nothing
   deffactory post(params \\ %{}), struct: Post do
-    base_params = %{title: sequence("post", fn n -> "Post ##{n}" end)}
+    base_params = %{title: FactoryMan.sequence("post", fn n -> "Post ##{n}" end)}
 
-    params = Map.put(params, :author, assoc(params, :author, &build_user_struct/1, struct: User))
+    params = Map.put(params, :author, FactoryMan.assoc(params, :author, &build_user_struct/1, struct: User))
 
     Map.merge(base_params, params)
   end
@@ -143,7 +143,7 @@ The full reference lives in the
 - **Variants** (`defvariant`) — lightweight presets that preprocess params for a base factory
 - **Associations** (`assoc/4`) — resolve a prebuilt struct, a params map, or a built default
 - **Strict params** (`strict: true`) — reject unknown param keys at the factory boundary
-- **Sequences** — unique values across builds (`sequence("user")` → `"user0"`, `"user1"`, ...)
+- **Sequences** — unique values across builds (`FactoryMan.sequence("user")` → `"user0"`, `"user1"`, ...)
 - **Lazy evaluation** — 0- and 1-arity functions as attribute values, resolved at build time
 - **Factory inheritance** (`extends:`) — share repo, hooks, and helper functions
 - **Direct struct factories** (`body: :struct`) — full control over struct construction

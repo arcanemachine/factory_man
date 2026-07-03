@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** `use FactoryMan` no longer imports `assoc/3,4` and `assoc_list/3,4`. Helper
+  functions are always called qualified (`FactoryMan.assoc(...)`, `FactoryMan.sequence(...)`),
+  making their origin explicit and avoiding collisions with generic names elsewhere (e.g.
+  `Ecto.Query.assoc/2`). Only the definition macros `deffactory`/`defvariant` remain imported —
+  they read as DSL keywords. Documentation examples previously showed `sequence(...)` bare even
+  though it was never imported; all examples now use the qualified form that actually compiles.
+
 ## [0.9.0] - 2026-07-03
 
 ### Added

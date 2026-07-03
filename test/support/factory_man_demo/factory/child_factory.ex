@@ -17,7 +17,8 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     base_params = %{name: "Some author"}
 
     # Resolve into `params` (not `base_params`) so the final merge keeps the resolved value
-    params = Map.put(params, :user, assoc(params, :user, &build_user_struct/1, struct: User))
+    params =
+      Map.put(params, :user, FactoryMan.assoc(params, :user, &build_user_struct/1, struct: User))
 
     Map.merge(base_params, params)
   end

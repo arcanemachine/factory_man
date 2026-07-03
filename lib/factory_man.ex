@@ -137,7 +137,7 @@ defmodule FactoryMan do
   deffactory author(params \\\\ %{}), struct: Author do
     base_params = %{name: "Test Author"}
 
-    params = Map.put(params, :user, assoc(params, :user, &build_user_struct/1, struct: User))
+    params = Map.put(params, :user, FactoryMan.assoc(params, :user, &build_user_struct/1, struct: User))
 
     Map.merge(base_params, params)
   end
@@ -200,7 +200,7 @@ defmodule FactoryMan do
 
   ```elixir
   deffactory user(params \\\\ %{}), struct: User, strict: true do
-    base_params = %{username: sequence("user")}
+    base_params = %{username: FactoryMan.sequence("user")}
 
     Map.merge(base_params, params)
   end
@@ -347,7 +347,7 @@ defmodule FactoryMan do
 
   ```elixir
   deffactory user(params \\\\ %{}), struct: User do
-    base_params = %{username: sequence("user"), role: "member"}
+    base_params = %{username: FactoryMan.sequence("user"), role: "member"}
 
     Map.merge(base_params, params)
   end
@@ -387,10 +387,10 @@ defmodule FactoryMan do
   Generate unique values across builds:
 
   ```elixir
-  sequence("user")                                          # "user0", "user1", ...
-  sequence(:email, fn n -> "user\#{n}@example.com" end)     # custom formatter
-  sequence(:role, ["admin", "moderator", "user"])           # cycles through list
-  sequence(:order, fn n -> "ORD-\#{n}" end, start_at: 1000) # custom start value
+  FactoryMan.sequence("user")                                          # "user0", "user1", ...
+  FactoryMan.sequence(:email, fn n -> "user\#{n}@example.com" end)     # custom formatter
+  FactoryMan.sequence(:role, ["admin", "moderator", "user"])           # cycles through list
+  FactoryMan.sequence(:order, fn n -> "ORD-\#{n}" end, start_at: 1000) # custom start value
   ```
 
   Reset in test setup: `FactoryMan.Sequence.reset()`
@@ -482,10 +482,10 @@ defmodule FactoryMan do
 
   ```elixir
   deffactory post(params \\\\ %{}), struct: Post do
-    base_params = %{title: sequence("post")}
+    base_params = %{title: FactoryMan.sequence("post")}
 
     params =
-      Map.put(params, :author, assoc(params, :author, &build_author_struct/1, struct: Author))
+      Map.put(params, :author, FactoryMan.assoc(params, :author, &build_author_struct/1, struct: Author))
 
     Map.merge(base_params, params)
   end
@@ -616,12 +616,12 @@ defmodule FactoryMan do
     quote do
       unquote_splicing(parent_imports)
 
+      # Only the definition macros are imported — they read as DSL keywords. Helper functions
+      # (assoc/4, sequence/1,2,3, ...) are deliberately not imported: they are called with the
+      # FactoryMan. prefix so their origin is explicit and generic names cannot collide (e.g.
+      # with Ecto.Query.assoc/2).
       import unquote(__MODULE__),
         only: [
-          assoc: 3,
-          assoc: 4,
-          assoc_list: 3,
-          assoc_list: 4,
           deffactory: 2,
           deffactory: 3,
           defvariant: 3
@@ -752,8 +752,8 @@ defmodule FactoryMan do
 
       deffactory user(params \\\\ %{}), struct: User do
         base_params = %{
-          username: sequence("user"),
-          email: sequence(:email, fn n -> "user\#{n}@example.com" end)
+          username: FactoryMan.sequence("user"),
+          email: FactoryMan.sequence(:email, fn n -> "user\#{n}@example.com" end)
         }
 
         Map.merge(base_params, params)
@@ -1009,7 +1009,7 @@ defmodule FactoryMan do
   ## Example
 
       deffactory user(params \\\\ %{}), struct: User do
-        base_params = %{username: sequence("user"), role: "member"}
+        base_params = %{username: FactoryMan.sequence("user"), role: "member"}
 
         Map.merge(base_params, params)
       end
@@ -1297,10 +1297,10 @@ defmodule FactoryMan do
 
   ```elixir
   deffactory post(params \\\\ %{}), struct: Post do
-    base_params = %{title: sequence("post")}
+    base_params = %{title: FactoryMan.sequence("post")}
 
     params =
-      Map.put(params, :author, assoc(params, :author, &build_author_struct/1, struct: Author))
+      Map.put(params, :author, FactoryMan.assoc(params, :author, &build_author_struct/1, struct: Author))
 
     Map.merge(base_params, params)
   end
@@ -1342,13 +1342,13 @@ defmodule FactoryMan do
   ## Examples
 
       # Nothing passed — the default association is built
-      assoc(%{}, :author, &build_author_struct/1)
+      FactoryMan.assoc(%{}, :author, &build_author_struct/1)
 
       # A struct is reused as-is
-      assoc(%{author: %Author{name: "Ann"}}, :author, &build_author_struct/1, struct: Author)
+      FactoryMan.assoc(%{author: %Author{name: "Ann"}}, :author, &build_author_struct/1, struct: Author)
 
       # A params map builds the association from those params
-      assoc(%{author: %{name: "Ann"}}, :author, &build_author_struct/1, struct: Author)
+      FactoryMan.assoc(%{author: %{name: "Ann"}}, :author, &build_author_struct/1, struct: Author)
   """
   def assoc(params, key, build_fun, opts \\ [])
       when is_map(params) and is_function(build_fun, 1) and is_list(opts) do
@@ -1389,13 +1389,13 @@ defmodule FactoryMan do
   ## Examples
 
       deffactory post(params \\\\ %{}), struct: Post do
-        base_params = %{title: sequence("post")}
+        base_params = %{title: FactoryMan.sequence("post")}
 
         params =
           Map.put(
             params,
             :comments,
-            assoc_list(params, :comments, &build_comment_struct/1, struct: Comment)
+            FactoryMan.assoc_list(params, :comments, &build_comment_struct/1, struct: Comment)
           )
 
         Map.merge(base_params, params)
@@ -1617,13 +1617,13 @@ defmodule FactoryMan do
   Generates a sequence of strings.
 
   The sequence name is used as the beginning of the string. For example, if you
-  do `sequence("joe")`, you will get back `"joe0"`, then `"joe1"`, and so on.
+  do `FactoryMan.sequence("joe")`, you will get back `"joe0"`, then `"joe1"`, and so on.
 
   ## Example
 
       def user_factory do
         %{
-          username: sequence("joe")
+          username: FactoryMan.sequence("joe")
         }
       end
 
@@ -1644,7 +1644,7 @@ defmodule FactoryMan do
 
       def user_factory do
         %{
-          email: sequence(:email, fn n -> "me-\#{n}@foo.com" end)
+          email: FactoryMan.sequence(:email, fn n -> "me-\#{n}@foo.com" end)
         }
       end
 
@@ -1652,7 +1652,7 @@ defmodule FactoryMan do
 
       def user_factory do
         %{
-          name: sequence(:name, ["Joe", "Mike", "Sarah"])
+          name: FactoryMan.sequence(:name, ["Joe", "Mike", "Sarah"])
         }
       end
   """
@@ -1670,7 +1670,7 @@ defmodule FactoryMan do
 
       def money_factory do
         %{
-          cents: sequence(:cents, fn n -> "\#{n}" end, start_at: 600)
+          cents: FactoryMan.sequence(:cents, fn n -> "\#{n}" end, start_at: 600)
         }
       end
   """
