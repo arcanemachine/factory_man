@@ -148,4 +148,5 @@ The full reference lives in the
 - **Factory inheritance** (`extends:`) — share repo, hooks, and helper functions
 - **Direct struct factories** (`body: :struct`) — full control over struct construction
 - **Embedded schemas** — build-only factories, detected automatically
-- **Cookbook** — recipes for common patterns like building associations
+- **[Cookbook](COOKBOOK.md)** — recipes for common patterns like building associations and
+  post-build/validated presets
