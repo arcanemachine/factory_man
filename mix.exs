@@ -66,13 +66,13 @@ defmodule FactoryMan.MixProject do
 
   defp docs do
     [
-      main: @project_name,
       extras: [
         "README.md": [title: "README"],
         "CHANGELOG.md": [title: "Changelog"]
       ],
       formatters: ["html"],
       main: "readme",
+      source_ref: "v#{@version}",
       before_closing_body_tag: &before_closing_body_tag/1
     ]
   end
