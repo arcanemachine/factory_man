@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `assoc/4` accepts an `:on_missing` option: `:build` (default) keeps the existing behavior of
+  building the default association; `nil` makes a missing key resolve to `nil`, for
+  associations that should only exist when the caller supplies one. Independent of `:on_nil`;
+  typically paired with `on_nil: :keep`.
+
 ## [0.7.0] - 2026-07-02
 
 ### Added
@@ -244,6 +253,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - List factories for bulk data creation (`*_list` variants)
 - Support for embedded schemas (Build struct, but do not attempt to generate `insert_*` functions)
 
+[unreleased]: https://github.com/arcanemachine/factory_man/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/arcanemachine/factory_man/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/arcanemachine/factory_man/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/arcanemachine/factory_man/compare/v0.4.1...v0.5.0

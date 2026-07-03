@@ -33,6 +33,22 @@ defmodule FactoryMan.AssocTest do
       assert FactoryMan.assoc(%{author: nil}, :author, &build_author/1, on_nil: :keep) == nil
     end
 
+    test "missing key resolves to nil with on_missing: nil" do
+      assert FactoryMan.assoc(%{}, :author, &build_author/1, on_missing: nil) == nil
+    end
+
+    test "on_missing: nil still builds from a present params map" do
+      author =
+        FactoryMan.assoc(%{author: %{name: "Ann"}}, :author, &build_author/1, on_missing: nil)
+
+      assert author == %Author{name: "Ann"}
+    end
+
+    test "on_missing: nil does not change on_nil (explicit nil still builds)" do
+      assert %Author{} =
+               FactoryMan.assoc(%{author: nil}, :author, &build_author/1, on_missing: nil)
+    end
+
     test "a struct matching :struct is reused as-is" do
       author = %Author{name: "Ann"}
 
@@ -77,6 +93,12 @@ defmodule FactoryMan.AssocTest do
     test "an invalid :on_nil option raises" do
       assert_raise ArgumentError, ~r/invalid :on_nil option: :ignore/, fn ->
         FactoryMan.assoc(%{}, :author, &build_author/1, on_nil: :ignore)
+      end
+    end
+
+    test "an invalid :on_missing option raises" do
+      assert_raise ArgumentError, ~r/invalid :on_missing option: :ignore/, fn ->
+        FactoryMan.assoc(%{}, :author, &build_author/1, on_missing: :ignore)
       end
     end
   end

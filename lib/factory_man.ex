@@ -461,7 +461,8 @@ defmodule FactoryMan do
 
   The `struct:` option raises on a struct of the wrong type — without it, a mistyped value
   would be reused silently. See `assoc/4` for the full semantics (`:inherit` defaults,
-  optional associations via `on_nil: :keep`) and `assoc_list/4` for `has_many`-style lists.
+  optional associations via `on_nil: :keep` and `on_missing: nil`) and `assoc_list/4` for
+  `has_many`-style lists.
 
   When the schema only needs a foreign key (and the record must exist), insert the association
   and use its ID:
@@ -1227,11 +1228,12 @@ defmodule FactoryMan do
   In merge-style factories, resolve into `params` (as above) so the final `Map.merge` keeps the
   resolved value; `body: :struct` factories can call `assoc/4` directly in field position.
 
-  | `params[key]`                     | Result                                    |
-  | --------------------------------- | ----------------------------------------- |
-  | key absent                        | `build_fun.(inherit)`                     |
-  | `nil` (with `on_nil: :build`)     | `build_fun.(inherit)`                     |
-  | `nil` (with `on_nil: :keep`)      | `nil`                                     |
+  | `params[key]`                        | Result                                    |
+  | ------------------------------------ | ----------------------------------------- |
+  | key absent                           | `build_fun.(inherit)`                     |
+  | key absent (with `on_missing: nil`)  | `nil`                                     |
+  | `nil` (with `on_nil: :build`)        | `build_fun.(inherit)`                     |
+  | `nil` (with `on_nil: :keep`)         | `nil`                                     |
   | struct matching `:struct`         | reused as-is                              |
   | struct not matching `:struct`     | raises `ArgumentError`                    |
   | any struct (no `:struct` option)  | reused as-is                              |
@@ -1251,6 +1253,10 @@ defmodule FactoryMan do
     caller's keys win).
   - `:on_nil` — what an explicit `nil` value means: `:build` (default) treats it like a missing
     key; `:keep` returns `nil`, for optional associations.
+  - `:on_missing` — what a missing key means: `:build` (default) builds the default
+    association; `nil` returns `nil`, for associations that only exist when the caller
+    supplies one. Independent of `:on_nil`; sites treating "absent" and "explicit `nil`" the
+    same typically pair `on_missing: nil` with `on_nil: :keep`.
 
   ## Examples
 
@@ -1267,13 +1273,21 @@ defmodule FactoryMan do
       when is_map(params) and is_function(build_fun, 1) and is_list(opts) do
     inherit = Keyword.get(opts, :inherit, %{})
     on_nil = Keyword.get(opts, :on_nil, :build)
+    on_missing = Keyword.get(opts, :on_missing, :build)
 
     if on_nil not in [:build, :keep] do
       raise ArgumentError,
             "invalid :on_nil option: #{inspect(on_nil)}. Expected :build (default) or :keep."
     end
 
+    if on_missing not in [:build, nil] do
+      raise ArgumentError,
+            "invalid :on_missing option: #{inspect(on_missing)}. " <>
+              "Expected :build (default) or nil."
+    end
+
     case Map.fetch(params, key) do
+      :error when on_missing == nil -> nil
       :error -> build_fun.(inherit)
       {:ok, nil} when on_nil == :keep -> nil
       {:ok, nil} -> build_fun.(inherit)
