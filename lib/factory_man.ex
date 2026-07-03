@@ -477,6 +477,52 @@ defmodule FactoryMan do
   end
   ```
 
+  ### Post-build presets
+
+  Variants preprocess params — they cannot transform the *built* value. When a preset needs
+  to derive fields from the built struct, define a separate factory with `body: :struct`
+  whose body calls the base build function and transforms the result:
+
+  ```elixir
+  deffactory anonymized_user(params \\\\ %{}), struct: User, body: :struct do
+    user = build_user_struct(params)
+
+    %{user | email: "redacted+\#{user.id}@example.com", display_name: "anonymous"}
+  end
+  ```
+
+  Unlike a hand-written `build_anonymized_user/1` function, this keeps the whole generated
+  family: `build_anonymized_user_params`, the `_list` builders, and `insert_anonymized_user`
+  all come for free.
+
+  One caveat: an `after_build_struct` hook runs twice — once inside the base build call and
+  once for the wrapping factory. Insert hooks run once (only the wrapping factory's insert
+  is called).
+
+  ### Validated presets
+
+  A variant that promises a property of its result ("this post is always published") can be
+  silently broken by caller params. To make the promise explicit, assert it over the merged
+  result and raise:
+
+  ```elixir
+  defvariant published(params \\\\ %{}), for: :post do
+    base_params = %{published_at: DateTime.utc_now(), draft: false}
+    result_params = Map.merge(base_params, params)
+
+    if Post.published?(result_params),
+      do: result_params,
+      else: raise("params contradict the published preset")
+  end
+  ```
+
+  A misuse like `build_published_post_struct(%{draft: true})` now fails at the factory
+  boundary instead of producing a self-contradictory record. The same shape works in the
+  opposite polarity (a `draft` variant raising when the params imply a published post).
+
+  Note the check runs on raw params, before lazy evaluation — the predicate cannot see
+  resolved values of lazy (function) fields.
+
   ## Duplicate Option Warnings
 
   If a child factory module specifies an option that is already defined by its parent with the
