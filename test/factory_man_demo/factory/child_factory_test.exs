@@ -451,20 +451,6 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert %{username: "raw"} = mod.build_raw_params()
     end
 
-    test "the removed build_params? option raises a compile-time error" do
-      assert_raise ArgumentError, ~r/:build_params\? option has been renamed to :body/, fn ->
-        Code.compile_string("""
-        defmodule FactoryManDemo.Factory.ChildFactoryTest.TestOldBuildParamsKey do
-          use FactoryMan
-
-          deffactory thing(params \\\\ %{}), struct: FactoryManDemo.Users.User, build_params?: false do
-            params
-          end
-        end
-        """)
-      end
-    end
-
     test "an invalid :body value raises a compile-time error" do
       assert_raise ArgumentError, ~r/invalid :body option: :map/, fn ->
         Code.compile_string("""
@@ -656,110 +642,6 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
                      end
                      """)
                    end
-    end
-  end
-
-  # ── __using__/1 duplicate option warning ───────────────────────
-
-  describe "__using__/1 duplicate option warning" do
-    import ExUnit.CaptureIO
-
-    test "warns when child module specifies the same option as parent" do
-      log =
-        capture_io(:stderr, fn ->
-          Code.compile_string("""
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.DupModParent do
-            use FactoryMan, repo: SomeRepo
-          end
-
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.DupModChild do
-            use FactoryMan, extends: FactoryManDemo.Factory.ChildFactoryTest.DupModParent, repo: SomeRepo
-          end
-          """)
-        end)
-
-      assert log =~ "FactoryMan: duplicate option"
-      assert log =~ ":repo"
-      assert log =~ "suppress_duplicate_option_warning"
-    end
-
-    test "does not warn when child overrides with a different value" do
-      log =
-        capture_io(:stderr, fn ->
-          Code.compile_string("""
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.DiffValParent do
-            use FactoryMan, repo: RepoA
-          end
-
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.DiffValChild do
-            use FactoryMan, extends: FactoryManDemo.Factory.ChildFactoryTest.DiffValParent, repo: RepoB
-          end
-          """)
-        end)
-
-      refute log =~ "FactoryMan: duplicate option"
-    end
-
-    test "does not warn when child specifies a new option not in parent" do
-      log =
-        capture_io(:stderr, fn ->
-          Code.compile_string("""
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.NewOptParent do
-            use FactoryMan, repo: SomeRepo
-          end
-
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.NewOptChild do
-            use FactoryMan, extends: FactoryManDemo.Factory.ChildFactoryTest.NewOptParent, body: :struct
-          end
-          """)
-        end)
-
-      refute log =~ "FactoryMan: duplicate option"
-    end
-
-    test "suppresses warning with suppress_duplicate_option_warning: true" do
-      log =
-        capture_io(:stderr, fn ->
-          Code.compile_string("""
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.SuppParent do
-            use FactoryMan, repo: SomeRepo
-          end
-
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.SuppChild do
-            use FactoryMan,
-              extends: FactoryManDemo.Factory.ChildFactoryTest.SuppParent,
-              repo: SomeRepo,
-              suppress_duplicate_option_warning: true
-          end
-          """)
-        end)
-
-      refute log =~ "FactoryMan: duplicate option"
-    end
-
-    test "suppress_duplicate_option_warning does not propagate to grandchildren" do
-      log =
-        capture_io(:stderr, fn ->
-          Code.compile_string("""
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.PropParent do
-            use FactoryMan, repo: SomeRepo
-          end
-
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.PropChild do
-            use FactoryMan,
-              extends: FactoryManDemo.Factory.ChildFactoryTest.PropParent,
-              repo: SomeRepo,
-              suppress_duplicate_option_warning: true
-          end
-
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.PropGrandchild do
-            use FactoryMan, extends: FactoryManDemo.Factory.ChildFactoryTest.PropChild, repo: SomeRepo
-          end
-          """)
-        end)
-
-      assert log =~ "FactoryMan: duplicate option"
-      assert log =~ "FactoryManDemo.Factory.ChildFactoryTest.PropGrandchild"
     end
   end
 
@@ -977,68 +859,6 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       params_list = ChildFactory.build_user_string_params_list(2, %{username: "same"})
 
       assert Enum.all?(params_list, &(&1["username"] == "same"))
-    end
-  end
-
-  # ── deffactory/2,3 duplicate option warning ────────────────────
-
-  describe "deffactory/2,3 duplicate option warning" do
-    import ExUnit.CaptureIO
-
-    test "warns when deffactory specifies the same option as its module" do
-      log =
-        capture_io(:stderr, fn ->
-          Code.compile_string("""
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.FactDupMod do
-            use FactoryMan, body: :struct
-
-            deffactory thing(params \\\\ %{}), struct: SomeStruct, body: :struct do
-              params
-            end
-          end
-          """)
-        end)
-
-      assert log =~ "FactoryMan: duplicate option"
-      assert log =~ "factory :thing"
-      assert log =~ ":body"
-    end
-
-    test "does not warn when deffactory overrides with a different value" do
-      log =
-        capture_io(:stderr, fn ->
-          Code.compile_string("""
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.FactDiffMod do
-            use FactoryMan, body: :struct
-
-            deffactory thing(params \\\\ %{}), struct: SomeStruct, body: :params do
-              params
-            end
-          end
-          """)
-        end)
-
-      refute log =~ "FactoryMan: duplicate option"
-    end
-
-    test "suppresses warning at factory level" do
-      log =
-        capture_io(:stderr, fn ->
-          Code.compile_string("""
-          defmodule FactoryManDemo.Factory.ChildFactoryTest.FactSuppMod do
-            use FactoryMan, body: :struct
-
-            deffactory thing(params \\\\ %{}),
-              struct: SomeStruct,
-              body: :struct,
-              suppress_duplicate_option_warning: true do
-              params
-            end
-          end
-          """)
-        end)
-
-      refute log =~ "FactoryMan: duplicate option"
     end
   end
 end

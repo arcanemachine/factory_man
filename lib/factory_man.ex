@@ -175,7 +175,6 @@ defmodule FactoryMan do
   - `:repo` — Ecto repo for database operations
   - `:extends` — Parent factory module to inherit configuration from
   - `:hooks` — Hooks applied to all factories in the module
-  - `:suppress_duplicate_option_warning` — Suppress warnings for redundant options
 
   **Factory-level** (set with `deffactory`):
 
@@ -186,7 +185,6 @@ defmodule FactoryMan do
     from the struct). Ignored for non-struct factories.
   - `:hooks` — Merged with module-level hooks
   - `:strict` — Reject unknown param keys at the factory boundary (see Strict Params below)
-  - `:suppress_duplicate_option_warning` — Suppress warnings for redundant options
 
   Options that only apply to struct factories (`:body`, `:strict`) cascade harmlessly from the
   module level — they are ignored by non-struct factories.
@@ -478,15 +476,6 @@ defmodule FactoryMan do
   Recipes for common patterns — building associations, post-build presets, validated
   presets — live in the [Cookbook](cookbook.html) guide.
 
-  ## Duplicate Option Warnings
-
-  If a child factory module specifies an option that is already defined by its parent with the
-  same value, FactoryMan will emit a compile-time warning. This helps catch redundant options
-  that were likely copy-pasted from the parent.
-
-  To suppress the warning for a specific module or factory, add
-  `suppress_duplicate_option_warning: true` to the options.
-
   ## Reflection and Debugging
 
   Every factory module gets a `__factory_man__/1,2` reflection function:
@@ -515,9 +504,6 @@ defmodule FactoryMan do
   end
   ```
   """
-
-  # Keys that should not trigger duplicate option warnings
-  @duplicate_warning_skip_keys [:extends, :suppress_duplicate_option_warning]
 
   defmacro __using__(opts \\ []) do
     parent_imports =
@@ -553,24 +539,13 @@ defmodule FactoryMan do
             # Extend base factory opts
             parent_opts = extends.__info__(:attributes)[:parent_factory_opts] || []
 
-            FactoryMan._warn_duplicate_options(
-              parent_opts,
-              unquote(opts),
-              "module #{inspect(__MODULE__)}",
-              __ENV__
-            )
-
             FactoryMan._merge_opts(parent_opts, unquote(opts))
         end
 
       # Put factory module options into a module attribute that can be read by the child factories
       Module.register_attribute(__MODULE__, :parent_factory_opts, persist: true)
 
-      Module.put_attribute(
-        __MODULE__,
-        :parent_factory_opts,
-        parent_factory_opts |> Keyword.delete(:suppress_duplicate_option_warning)
-      )
+      Module.put_attribute(__MODULE__, :parent_factory_opts, parent_factory_opts)
 
       @before_compile FactoryMan
     end
@@ -640,8 +615,6 @@ defmodule FactoryMan do
   - `:strict` - Set to `true` to raise on param keys that are not fields of the `:struct`
     option's struct, or `[allow: [...]]` to permit specific extra keys (see the Strict Params
     section). Ignored for non-struct factories.
-  - `:suppress_duplicate_option_warning` - Set to `true` to suppress warnings when this
-    factory specifies an option already defined by the module with the same value
 
   ## Generated Functions
 
@@ -706,28 +679,7 @@ defmodule FactoryMan do
           ] do
       parent_factory_opts = Module.get_attribute(__MODULE__, :parent_factory_opts)
 
-      FactoryMan._warn_duplicate_options(
-        parent_factory_opts,
-        opts,
-        "factory :#{factory_name} in #{inspect(__MODULE__)}",
-        __ENV__
-      )
-
       merged_opts = FactoryMan._merge_opts(parent_factory_opts, opts)
-
-      if Keyword.has_key?(merged_opts, :build_struct?) do
-        raise ArgumentError,
-              "the :build_struct? option has been removed. Params functions are now derived " <>
-                "from the built struct, so struct factories always generate struct builders. " <>
-                "If you don't want struct functions, omit the :struct option."
-      end
-
-      if Keyword.has_key?(merged_opts, :build_params?) do
-        raise ArgumentError,
-              "the :build_params? option has been renamed to :body. Use `body: :struct` to have " <>
-                "the factory body return a struct directly (was build_params?: false), or remove " <>
-                "the option for the default params-map body (was build_params?: true)."
-      end
 
       body = Keyword.get(merged_opts, :body, :params)
 
@@ -1495,35 +1447,6 @@ defmodule FactoryMan do
       merged_opts
     else
       Keyword.put(merged_opts, :hooks, merged_hooks)
-    end
-  end
-
-  @doc """
-  Warn at compile time if child opts contain options that are already defined by the parent with
-  the same value.
-
-  This is a FactoryMan internal function — called from macro-generated code. Use the underscore
-  prefix convention to signal that it is not part of the public API.
-  """
-  def _warn_duplicate_options(parent_opts, child_opts, context, env) do
-    if Keyword.get(child_opts, :suppress_duplicate_option_warning) != true do
-      child_opts
-      |> Keyword.drop(@duplicate_warning_skip_keys)
-      |> Enum.each(fn {key, value} ->
-        if Keyword.has_key?(parent_opts, key) and Keyword.get(parent_opts, key) == value do
-          IO.warn(
-            """
-            FactoryMan: duplicate option in #{context}
-
-            The option `#{inspect(key)}: #{inspect(value)}` is already defined by the parent \
-            factory with the same value. This is redundant and can be removed.
-
-            To suppress this warning, add `suppress_duplicate_option_warning: true` to the options.\
-            """,
-            env
-          )
-        end
-      end)
     end
   end
 

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **Breaking:** Duplicate option warnings (and the `:suppress_duplicate_option_warning` option)
+  are removed. The warning could only ever flag harmless same-value redundancy, yet failed
+  builds under `--warnings-as-errors` and needed its own suppression escape hatch. Redundancy
+  linting belongs in consumer-side tooling.
+- **Breaking:** The compile-time tombstone errors for the options removed or renamed in 0.6.0
+  (`build_params?`, `build_struct?`) are removed. Legacy keys are now ignored like any other
+  unknown option.
+
 ## [0.10.0] - 2026-07-03
 
 ### Changed
@@ -277,6 +289,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - List factories for bulk data creation (`*_list` variants)
 - Support for embedded schemas (Build struct, but do not attempt to generate `insert_*` functions)
 
+[unreleased]: https://github.com/arcanemachine/factory_man/compare/v0.10.0...HEAD
 [0.10.0]: https://github.com/arcanemachine/factory_man/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/arcanemachine/factory_man/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/arcanemachine/factory_man/compare/v0.7.0...v0.8.0
