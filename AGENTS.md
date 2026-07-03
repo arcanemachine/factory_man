@@ -40,6 +40,8 @@ test/
       posts_tags/post_tag.ex
       embedded_schema.ex
   factory_man/
+    assoc_test.exs
+    extends_test.exs
     sequence_test.exs
   factory_man_demo/
     factory_test.exs
