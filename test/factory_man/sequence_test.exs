@@ -1,5 +1,6 @@
 defmodule FactoryMan.SequenceTest do
-  use ExUnit.Case
+  # Sequences share one global Agent, so these tests (which reset it) cannot run async
+  use ExUnit.Case, async: false
 
   alias FactoryMan.Sequence
 

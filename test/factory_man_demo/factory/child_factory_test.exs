@@ -41,25 +41,23 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     end
 
     test "caller params override defaults" do
-      user = ChildFactory.insert_user(%{username: "charlie-#{System.os_time()}"})
+      user = ChildFactory.insert_user(%{username: "charlie"})
 
       assert is_integer(user.id)
-      assert String.starts_with?(user.username, "charlie-")
+      assert user.username == "charlie"
     end
 
     test "accepts repo options as second argument" do
-      user =
-        ChildFactory.insert_user(%{username: "repo-opts-#{System.os_time()}"}, returning: true)
+      user = ChildFactory.insert_user(%{username: "repo-opts"}, returning: true)
 
       assert is_integer(user.id)
     end
 
     test "repo options can handle conflicts" do
-      username = "conflict-#{System.os_time()}"
-      ChildFactory.insert_user(%{username: username})
+      ChildFactory.insert_user(%{username: "conflict"})
 
       # Duplicate insert with on_conflict: :nothing should not raise
-      ChildFactory.insert_user(%{username: username}, on_conflict: :nothing)
+      ChildFactory.insert_user(%{username: "conflict"}, on_conflict: :nothing)
     end
 
     test "multiple inserts produce unique records" do
@@ -415,7 +413,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     test "body: :struct is a no-op for non-struct factories" do
       [{mod, _}] =
         Code.compile_string("""
-        defmodule TestBodyStructNoStruct do
+        defmodule FactoryManDemo.Factory.ChildFactoryTest.TestBodyStructNoStruct do
           use FactoryMan
 
           deffactory thing(params \\\\ %{}), body: :struct do
@@ -431,7 +429,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     test "module-level body: :struct works with mixed struct and non-struct factories" do
       [{mod, _}] =
         Code.compile_string("""
-        defmodule TestMixedBodyStruct do
+        defmodule FactoryManDemo.Factory.ChildFactoryTest.TestMixedBodyStruct do
           use FactoryMan, body: :struct
 
           deffactory plain(params \\\\ %{}) do
@@ -456,7 +454,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     test "the removed build_params? option raises a compile-time error" do
       assert_raise ArgumentError, ~r/:build_params\? option has been renamed to :body/, fn ->
         Code.compile_string("""
-        defmodule TestOldBuildParamsKey do
+        defmodule FactoryManDemo.Factory.ChildFactoryTest.TestOldBuildParamsKey do
           use FactoryMan
 
           deffactory thing(params \\\\ %{}), struct: FactoryManDemo.Users.User, build_params?: false do
@@ -470,7 +468,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
     test "an invalid :body value raises a compile-time error" do
       assert_raise ArgumentError, ~r/invalid :body option: :map/, fn ->
         Code.compile_string("""
-        defmodule TestInvalidBodyValue do
+        defmodule FactoryManDemo.Factory.ChildFactoryTest.TestInvalidBodyValue do
           use FactoryMan
 
           deffactory thing(params \\\\ %{}), struct: FactoryManDemo.Users.User, body: :map do
@@ -629,7 +627,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
                    ~r/base factory :nonexistent not found/,
                    fn ->
                      Code.compile_string("""
-                     defmodule TestVariantNoBase do
+                     defmodule FactoryManDemo.Factory.ChildFactoryTest.TestVariantNoBase do
                        use FactoryMan
 
                        defvariant broken(params \\\\ %{}), for: :nonexistent do
@@ -649,7 +647,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
                    ~r/Invalid factory definition: expected exactly one argument/,
                    fn ->
                      Code.compile_string("""
-                     defmodule TestMultiArg do
+                     defmodule FactoryManDemo.Factory.ChildFactoryTest.TestMultiArg do
                        use FactoryMan
 
                        deffactory multi(a, b), struct: String do
@@ -670,12 +668,12 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       log =
         capture_io(:stderr, fn ->
           Code.compile_string("""
-          defmodule DupModParent do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.DupModParent do
             use FactoryMan, repo: SomeRepo
           end
 
-          defmodule DupModChild do
-            use FactoryMan, extends: DupModParent, repo: SomeRepo
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.DupModChild do
+            use FactoryMan, extends: FactoryManDemo.Factory.ChildFactoryTest.DupModParent, repo: SomeRepo
           end
           """)
         end)
@@ -689,12 +687,12 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       log =
         capture_io(:stderr, fn ->
           Code.compile_string("""
-          defmodule DiffValParent do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.DiffValParent do
             use FactoryMan, repo: RepoA
           end
 
-          defmodule DiffValChild do
-            use FactoryMan, extends: DiffValParent, repo: RepoB
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.DiffValChild do
+            use FactoryMan, extends: FactoryManDemo.Factory.ChildFactoryTest.DiffValParent, repo: RepoB
           end
           """)
         end)
@@ -706,12 +704,12 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       log =
         capture_io(:stderr, fn ->
           Code.compile_string("""
-          defmodule NewOptParent do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.NewOptParent do
             use FactoryMan, repo: SomeRepo
           end
 
-          defmodule NewOptChild do
-            use FactoryMan, extends: NewOptParent, body: :struct
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.NewOptChild do
+            use FactoryMan, extends: FactoryManDemo.Factory.ChildFactoryTest.NewOptParent, body: :struct
           end
           """)
         end)
@@ -723,13 +721,13 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       log =
         capture_io(:stderr, fn ->
           Code.compile_string("""
-          defmodule SuppParent do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.SuppParent do
             use FactoryMan, repo: SomeRepo
           end
 
-          defmodule SuppChild do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.SuppChild do
             use FactoryMan,
-              extends: SuppParent,
+              extends: FactoryManDemo.Factory.ChildFactoryTest.SuppParent,
               repo: SomeRepo,
               suppress_duplicate_option_warning: true
           end
@@ -743,25 +741,25 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       log =
         capture_io(:stderr, fn ->
           Code.compile_string("""
-          defmodule PropParent do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.PropParent do
             use FactoryMan, repo: SomeRepo
           end
 
-          defmodule PropChild do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.PropChild do
             use FactoryMan,
-              extends: PropParent,
+              extends: FactoryManDemo.Factory.ChildFactoryTest.PropParent,
               repo: SomeRepo,
               suppress_duplicate_option_warning: true
           end
 
-          defmodule PropGrandchild do
-            use FactoryMan, extends: PropChild, repo: SomeRepo
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.PropGrandchild do
+            use FactoryMan, extends: FactoryManDemo.Factory.ChildFactoryTest.PropChild, repo: SomeRepo
           end
           """)
         end)
 
       assert log =~ "FactoryMan: duplicate option"
-      assert log =~ "PropGrandchild"
+      assert log =~ "FactoryManDemo.Factory.ChildFactoryTest.PropGrandchild"
     end
   end
 
@@ -991,7 +989,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       log =
         capture_io(:stderr, fn ->
           Code.compile_string("""
-          defmodule FactDupMod do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.FactDupMod do
             use FactoryMan, body: :struct
 
             deffactory thing(params \\\\ %{}), struct: SomeStruct, body: :struct do
@@ -1010,7 +1008,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       log =
         capture_io(:stderr, fn ->
           Code.compile_string("""
-          defmodule FactDiffMod do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.FactDiffMod do
             use FactoryMan, body: :struct
 
             deffactory thing(params \\\\ %{}), struct: SomeStruct, body: :params do
@@ -1027,7 +1025,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       log =
         capture_io(:stderr, fn ->
           Code.compile_string("""
-          defmodule FactSuppMod do
+          defmodule FactoryManDemo.Factory.ChildFactoryTest.FactSuppMod do
             use FactoryMan, body: :struct
 
             deffactory thing(params \\\\ %{}),
