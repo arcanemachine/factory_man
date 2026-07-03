@@ -162,17 +162,20 @@ defmodule FactoryMan.AssocTest do
     end
 
     test "helper functions are not imported (bare assoc does not compile)" do
-      assert_raise CompileError, fn ->
-        Code.compile_string("""
-        defmodule FactoryMan.AssocTest.BareFactory do
-          use FactoryMan
+      # Capture the compiler diagnostics so the expected error does not pollute test output
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        assert_raise CompileError, fn ->
+          Code.compile_string("""
+          defmodule FactoryMan.AssocTest.BareFactory do
+            use FactoryMan
 
-          deffactory post(params \\\\ %{}) do
-            %{author: assoc(params, :author, fn p -> p end)}
+            deffactory post(params \\\\ %{}) do
+              %{author: assoc(params, :author, fn p -> p end)}
+            end
           end
+          """)
         end
-        """)
-      end
+      end)
     end
   end
 end

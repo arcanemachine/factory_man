@@ -533,7 +533,7 @@ defmodule FactoryMan do
       # Only the definition macros are imported — they read as DSL keywords. Helper functions
       # (assoc/4, sequence/1,2,3, ...) are deliberately not imported: they are called with the
       # FactoryMan. prefix so their origin is explicit and generic names cannot collide (e.g.
-      # with Ecto.Query.assoc/2).
+      # with Ecto.assoc/2).
       import unquote(__MODULE__),
         only: [
           deffactory: 2,

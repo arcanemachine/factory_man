@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `use FactoryMan` no longer imports `assoc/3,4` and `assoc_list/3,4`. Helper
   functions are always called qualified (`FactoryMan.assoc(...)`, `FactoryMan.sequence(...)`),
   making their origin explicit and avoiding collisions with generic names elsewhere (e.g.
-  `Ecto.Query.assoc/2`). Only the definition macros `deffactory`/`defvariant` remain imported —
+  `Ecto.assoc/2`). Only the definition macros `deffactory`/`defvariant` remain imported —
   they read as DSL keywords. Documentation examples previously showed `sequence(...)` bare even
   though it was never imported; all examples now use the qualified form that actually compiles.
 
