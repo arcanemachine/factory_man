@@ -119,8 +119,45 @@ Factories without a `struct:` option are simpler: they generate `build_<name>` a
 - **`insert_*`** — When a foreign key constraint requires the record to exist, or when the test
   queries the database for it.
 
-A common mistake is inserting records when a plain struct would suffice. If you only need an ID for
-a foreign key, consider whether the test actually needs that constraint enforced.
+## Child Factories with `extends:`
+
+Use `extends:` to keep shared configuration, hooks, and helpers in a base factory while defining
+factories in focused child modules:
+
+```elixir
+defmodule MyApp.Factory do
+  use FactoryMan,
+    # These options will be inherited by any child factories that extend the parent
+    repo: MyApp.Repo,
+    hooks: [after_insert: &__MODULE__.unset_assocs/1]
+
+  @doc "Unset all assocs from a given Ecto schema `struct`."
+  def unset_assocs(struct) do
+    Ecto.reset_fields(struct, struct.__struct__.__schema__(:associations))
+  end
+end
+
+defmodule MyApp.Factory.Accounts do
+  # The child factory uses `:extends` to inherit options from the parent factory
+  use FactoryMan,
+    extends: MyApp.Factory,
+    # Child factories can add their own options too
+    repo: MyApp.OtherRepo
+
+  alias MyApp.Accounts.User
+
+  # This factory inherits the post-insert hook, so its assocs will be unset after insert
+  deffactory user(params \\ %{}), struct: User do
+    base_params = %{username: FactoryMan.sequence("user")}
+
+    Map.merge(base_params, params)
+  end
+end
+```
+
+The child factory inherits the parent’s repo and module-level hooks, so `insert_user/1` runs
+`unset_assocs/1` after insertion. Parent helpers are also callable directly, and child factories
+can themselves be extended to create deeper hierarchies.
 
 ## Recommended Project Structure
 
