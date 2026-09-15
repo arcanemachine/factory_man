@@ -33,7 +33,7 @@ defmodule MyApp.Factory do
   alias MyApp.Accounts.User
   alias MyApp.Blog.Post
 
-  # Basic factory
+  # Basic factory (struct-ful)
   deffactory user(params \\ %{}), struct: User do
     base_params = %{
       username: FactoryMan.sequence("user"),
@@ -71,26 +71,58 @@ defmodule MyApp.Factory do
 end
 ```
 
-Each factory generates a family of functions:
+Each factory generates a family of functions.
 
 ```elixir
-iex> Factory.build_user_struct()
-%User{username: "user1", email: "user1@example.com", ...}
+iex> alias MyApp.Factory, as: Factory
+MyApp.Factory
 
-iex> Factory.build_user_params()
-%{username: "user0", email: "user0@example.com", role: "admin", ...}
+# Build a struct without saving it
+iex> Factory.build_user_struct(%{username: "alice"})
+%User{id: nil, username: "alice", ...}
 
-iex> Factory.insert_user()
-%User{id: 1, username: "user2", ...}
+# Atom-keyed input for a changeset
+iex> Factory.build_user_params(%{username: "alice"})
+%{username: "alice", ...}
 
+# String-keyed input for a controller test
+iex> Factory.build_user_string_params(%{username: "alice"})
+%{"username" => "alice", ...}
+
+# Build several structs without saving them
+iex> Factory.build_user_struct_list(3)
+[%User{id: nil, ...}, %User{id: nil, ...}, %User{id: nil, ...}]
+
+# Build and save a struct
+iex> Factory.insert_user(%{username: "alice"})
+%User{id: 1, username: "alice", ...}
+
+# Build and insert multiple structs in a single call
 iex> Factory.insert_user_list(3)
 [%User{id: 2, ...}, %User{id: 3, ...}, %User{id: 4, ...}]
 
-iex> Factory.build_admin_user_struct()
-%User{role: "admin", username: "user3", ...}
+# Save an edited struct through the factory's insert hooks
+iex> user = Factory.build_user_struct()
+iex> Factory.insert_user_struct(%{user | username: "edited"})
+%User{id: 5, username: "edited", ...}
 
+# Build a variant struct
+iex> Factory.build_admin_user_struct(%{username: "the_boss"})
+%User{id: nil, role: "admin", username: "the_boss", ...}
+
+# Insert a variant struct
+iex> Factory.insert_admin_user(%{username: "the_boss"})
+%User{id: 6, role: "admin", username: "the_boss", ...}
+
+## Struct-less factory functions
+
+# Build a struct-less factory item
 iex> Factory.build_api_payload()
 %{action: "create", resource: "user"}
+
+# Build a list of struct-less factory items
+iex> Factory.build_api_payload_list(2)
+[%{action: "create", resource: "user"}, %{action: "create", resource: "user"}]
 ```
 
 ## How It Works
@@ -103,7 +135,9 @@ You write one factory, and FactoryMan generates the rest:
   it to a clean params map (Ecto metadata stripped) for changesets or controller tests
 - **`insert_<name>`** — builds the struct and inserts it with your configured repo
 - **`insert_<name>_struct`** — inserts an already-built struct through the same insert pipeline
-- **`*_list` variants** of the builders above, each item evaluated independently
+- **List builders** — `build_<name>_struct_list`, `build_<name>_params_list`, and
+  `build_<name>_string_params_list` build each item independently. `insert_<name>_list` builds and
+  inserts each item independently. `insert_<name>_struct` has no list counterpart.
 
 Factories without a `struct:` option are simpler: they generate `build_<name>` and
 `build_<name>_list`, and the body can return any value (maps, keyword lists, strings, ...).
@@ -119,7 +153,9 @@ Factories without a `struct:` option are simpler: they generate `build_<name>` a
 - **`insert_*`** — When a foreign key constraint requires the record to exist, or when the test
   queries the database for it.
 
-## Child Factories with `extends:`
+## Extending factories
+
+### Child factories with `extends:`
 
 Use `extends:` to keep shared configuration, hooks, and helpers in a base factory while defining
 factories in focused child modules:
@@ -153,13 +189,17 @@ defmodule MyApp.Factory.Accounts do
     Map.merge(base_params, params)
   end
 end
+
+defmodule MyApp.Factory.Accounts.Admins do
+  use FactoryMan, extends: MyApp.Factory.Accounts
+end
 ```
 
-The child factory inherits the parent’s repo and module-level hooks, so `insert_user/1` runs
-`unset_assocs/1` after insertion. Parent helpers are also callable directly, and child factories
-can themselves be extended to create deeper hierarchies.
+`MyApp.Factory.Accounts` overrides the parent's repo and still inherits its hooks and helpers.
+`MyApp.Factory.Accounts.Admins` inherits those resolved options, including the repo override. Any
+factory module can be extended again, so inheritance chains have no fixed depth.
 
-## Recommended Project Structure
+### Recommended project structure
 
 Keep the base factory focused on shared config (repo, hooks, helpers). Child factories use
 `extends:` to inherit that config, and mirror your application's context structure:
@@ -169,6 +209,8 @@ test/support/
   factory.ex                    # Base factory (config, hooks, shared helpers)
   factory/
     accounts.ex                 # MyApp.Factory.Accounts (extends MyApp.Factory)
+    accounts/
+      admins.ex                 # MyApp.Factory.Accounts.Admins (extends MyApp.Factory.Accounts)
     blog.ex                     # MyApp.Factory.Blog (extends MyApp.Factory)
     blog/comments.ex            # MyApp.Factory.Blog.Comments (extends MyApp.Factory)
 ```
@@ -182,7 +224,7 @@ The full reference lives in the
 - **Variants** (`defvariant`) — lightweight presets that preprocess params for a base factory
 - **Associations** (`assoc/4`) — resolve a prebuilt struct, a params map, or a built default
 - **Strict params** (`strict: true`) — reject unknown param keys at the factory boundary
-- **Sequences** — unique values across builds (`FactoryMan.sequence("user")` → `"user0"`, `"user1"`, ...)
+- **Sequences** — counters, formatted values, and cycling lists
 - **Lazy evaluation** — 0- and 1-arity functions as attribute values, resolved at build time
 - **Factory inheritance** (`extends:`) — share repo, hooks, and helper functions
 - **Direct struct factories** (`body: :struct`) — full control over struct construction

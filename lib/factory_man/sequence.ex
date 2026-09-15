@@ -2,8 +2,8 @@ defmodule FactoryMan.Sequence do
   @moduledoc """
   Module for generating sequential values.
 
-  Use `FactoryMan.sequence/1` or `FactoryMan.sequence/2` to generate sequential values instead of
-  calling this module directly.
+  Use `FactoryMan.sequence/1`, `FactoryMan.sequence/2`, or `FactoryMan.sequence/3` to generate
+  sequential values instead of calling this module directly.
 
   ## Attribution
 
@@ -20,7 +20,7 @@ defmodule FactoryMan.Sequence do
   end
 
   @doc """
-  Reset all sequences so that the next sequence starts from `0`:
+  Clear all sequence counters. The next call starts at `0`, or at its supplied `:start_at` value.
 
   ## Example
 
@@ -55,8 +55,8 @@ defmodule FactoryMan.Sequence do
   end
 
   @doc """
-  Reset specific sequences so long as they already exist. The sequences specified will be reset to
-  0, while others will remain at their current index.
+  Set the named sequence counters to `0`, creating them if necessary. Other counters keep their
+  current positions.
 
   ## Examples
 

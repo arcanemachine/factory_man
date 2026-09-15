@@ -1,7 +1,7 @@
 defmodule FactoryMan do
   @moduledoc """
   An Elixir library for generating test data. Define factories with `deffactory`, and FactoryMan
-  generates functions for building params, structs, and database records.
+  generates functions for building params and structs, and inserting database records.
 
   ## Quick Start
 
@@ -21,7 +21,9 @@ defmodule FactoryMan do
 
   ## Generated Functions
 
-  For a factory named `:user` with `struct: User`:
+  For a factory named `:user` with `struct: User` and a plain params argument that defaults to an empty
+  map, the following functions are available. Insert functions require a configured repo, a table-backed
+  Ecto schema, and `insert?` not set to `false`.
 
   | Function                            | Returns          | Purpose                              |
   | ----------------------------------- | ---------------- | ------------------------------------ |
@@ -35,24 +37,29 @@ defmodule FactoryMan do
   | `insert_user_list/1,2,3`            | `[%User{}, ...]` | List of inserted records             |
   | `insert_user_struct/1,2`            | `%User{}`        | Inserts an already-built struct      |
 
-  All functions accept optional params for customization. Insert functions also accept repo
-  options. Each item in a list is evaluated independently (unique timestamps, sequences, etc.).
+  Builders and `insert_user` accept factory params. `insert_user_struct` takes an existing `%User{}`
+  instead. Insert functions also accept repo options. Each list item is built independently.
 
-  What gets generated depends on the options:
+  Zero-arity builders and inserts require a default argument in the factory head. For struct
+  factories, count-only list functions pass `%{}` and are omitted when the head pattern-matches its
+  argument. Non-struct count-only list functions require a default argument and use that default.
 
-  | Options                  | Params | Struct | Insert |
-  | ------------------------ | ------ | ------ | ------ |
-  | `struct: User` (default) | Yes    | Yes    | Yes    |
-  | No `struct:` option      | Yes    | No     | No     |
-  | `insert?: false`         | Yes    | Yes    | No     |
-  | `body: :struct`          | Yes    | Yes    | Yes    |
-  | Embedded schema          | Yes    | Yes    | No     |
+  What gets generated depends on the factory configuration:
 
-  Params functions are derived from the built struct, so they exist for every struct factory —
-  including `body: :struct` factories, whose body returns a struct directly.
+  | Factory configuration    | Value builders | Params builders | Struct builders | Inserts            |
+  | ------------------------ | -------------- | --------------- | --------------- | ------------------ |
+  | No `struct:` option      | Yes            | No              | No              | No                 |
+  | Plain struct             | No             | Yes             | Yes             | No                 |
+  | Table-backed Ecto schema | No             | Yes             | Yes             | Yes, when enabled  |
+  | Embedded schema          | No             | Yes             | Yes             | No                 |
 
-  How the functions relate (list variants omitted — each generated function also has a `*_list`
-  counterpart that evaluates every item independently):
+  Value builders use `build_<name>` and `build_<name>_list`. Params builders include atom-keyed and
+  string-keyed functions. Inserts require a configured repo and `insert?` not set to `false`. Setting
+  `body: :struct` changes how the struct is built, not which function families are generated.
+
+  The diagram shows the build pipeline with `body: :params`. Each function shown has a list
+  counterpart that builds every item independently. `insert_user_struct`, not shown, starts at the
+  insert pipeline and has no list counterpart:
 
   ```mermaid
   flowchart TD
@@ -70,9 +77,9 @@ defmodule FactoryMan do
 
   ## Defining Factories
 
-  The `deffactory` macro works like defining a function — specify a name, a parameter, and a body
-  that returns a **plain map**. For struct factories, the map's keys must be fields of the
-  struct (it is passed to `struct!/2`):
+  The `deffactory` macro defines a named factory with one argument and a body. With `struct:` and
+  the default `body: :params`, return a plain map containing only fields of that struct. With
+  `body: :struct`, return the struct directly. Without `struct:`, the body can return any value.
 
   ```elixir
   deffactory user(params \\\\ %{}), struct: User do
@@ -162,9 +169,9 @@ defmodule FactoryMan do
   build_user_string_params(%{username: "alice"})
   ```
 
-  `belongs_to` associations are removed from the output; if the association is persisted, the
-  foreign key is set instead. Unlike ExMachina, nil values are preserved (a nil field may be
-  intentional), and struct values like `DateTime` are left untouched.
+  `belongs_to` associations are removed from the output. If the association is persisted, its
+  foreign key is set instead. Ordinary fields retain nil values, but nil embeds are omitted. Struct
+  values such as `DateTime` are left untouched.
 
   ## Factory Options
 
@@ -382,7 +389,7 @@ defmodule FactoryMan do
 
   ## Sequences
 
-  Generate unique values across builds:
+  Generate sequential values or cycle through a list:
 
   ```elixir
   FactoryMan.sequence("user")                                          # "user0", "user1", ...
@@ -439,8 +446,8 @@ defmodule FactoryMan do
   end
   ```
 
-  Embedded schemas generate `build_*_params` and `build_*_struct` functions only (as well as
-  the matching `*_list` functions), but do not generate any `insert_*` functions.
+  Embedded schemas generate `build_*_struct`, `build_*_params`, and `build_*_string_params`, plus
+  their matching `*_list` functions. They do not generate insert functions.
 
   ## Direct Struct Factories (`body: :struct`)
 
@@ -618,7 +625,9 @@ defmodule FactoryMan do
 
   ## Generated Functions
 
-  For a factory named `user` with `struct: User`, the following functions are generated:
+  For a factory named `user` with `struct: User` and a plain params argument that defaults to an
+  empty map, the following functions are generated. Insert functions require a configured repo, a table-backed
+  Ecto schema, and `insert?` not set to `false`.
 
   - `build_user_struct/0,1` - Returns an unsaved struct
   - `build_user_params/0,1` - Clean params map derived from the built struct
@@ -634,6 +643,9 @@ defmodule FactoryMan do
 
   - `build_greeting/1` - Returns the factory's value
   - `build_greeting_list/2` - Builds multiple items
+
+  With a default argument in the factory head, `build_greeting/0` and `build_greeting_list/1` are
+  also generated.
 
   ## Examples
 
@@ -1175,17 +1187,17 @@ defmodule FactoryMan do
   In merge-style factories, resolve into `params` (as above) so the final `Map.merge` keeps the
   resolved value; `body: :struct` factories can call `assoc/4` directly in field position.
 
-  | `params[key]`                        | Result                                    |
-  | ------------------------------------ | ----------------------------------------- |
-  | key absent                           | `build_fun.(inherit)`                     |
-  | key absent (with `on_missing: nil`)  | `nil`                                     |
-  | `nil` (with `on_nil: :build`)        | `build_fun.(inherit)`                     |
-  | `nil` (with `on_nil: :keep`)         | `nil`                                     |
-  | struct matching `:struct`         | reused as-is                              |
-  | struct not matching `:struct`     | raises `ArgumentError`                    |
-  | any struct (no `:struct` option)  | reused as-is                              |
-  | params map                        | `build_fun.(Map.merge(inherit, map))`     |
-  | anything else                     | raises `ArgumentError`                    |
+  | `params[key]`                       | Result                                |
+  | ----------------------------------- | ------------------------------------- |
+  | key absent                          | `build_fun.(inherit)`                 |
+  | key absent (with `on_missing: nil`) | `nil`                                 |
+  | `nil` (with `on_nil: :build`)       | `build_fun.(inherit)`                 |
+  | `nil` (with `on_nil: :keep`)        | `nil`                                 |
+  | struct matching `:struct`           | reused as-is                          |
+  | struct not matching `:struct`       | raises `ArgumentError`                |
+  | any struct (no `:struct` option)    | reused as-is                          |
+  | params map                          | `build_fun.(Map.merge(inherit, map))` |
+  | anything else                       | raises `ArgumentError`                |
 
   `build_fun` is any 1-arity function — a `build_*` function for in-memory associations, or an
   `insert_*` function when the association must be persisted.
@@ -1471,11 +1483,10 @@ defmodule FactoryMan do
   def sequence(name), do: FactoryMan.Sequence.next(name)
 
   @doc """
-  Generates and returns a unique sequence.
+  Returns the next value in a named sequence.
 
-  If a formatter function is passed, it will be called with the current
-  position of the sequence. You can also pass a list, and each item in the list
-  will be returned in sequence.
+  A formatter function receives the current counter. A list cycles through its items. Returned
+  values are not guaranteed to be unique.
 
   ## Example with a formatter function
 
@@ -1498,10 +1509,10 @@ defmodule FactoryMan do
   def sequence(name, formatter), do: FactoryMan.Sequence.next(name, formatter)
 
   @doc """
-  Generates and returns a unique sequence with options.
+  Returns the next value in a named sequence using a formatter function.
 
-  Currently, the only option is `:start_at` which specifies the number to
-  start the sequence at.
+  `:start_at` sets the initial counter when the named sequence does not yet exist. It does not change
+  an existing counter. List formatters are supported by `sequence/2`, not `sequence/3`.
 
   ## Example
 
@@ -1512,6 +1523,6 @@ defmodule FactoryMan do
       end
   """
 
-  @spec sequence(any, (integer -> any) | nonempty_list, start_at: non_neg_integer) :: any
+  @spec sequence(any, (integer -> any), start_at: non_neg_integer) :: any
   def sequence(name, formatter, opts), do: FactoryMan.Sequence.next(name, formatter, opts)
 end
