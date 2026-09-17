@@ -29,7 +29,7 @@ defmodule MyApp.Factory do
   use FactoryMan, repo: MyApp.Repo
 
   alias MyApp.Accounts.User
-  alias MyApp.Blog.Post
+  alias MyApp.Blog.{Post, Tag}
 
   # Basic factory (struct-ful)
   deffactory user(params \\ %{}), struct: User do
@@ -51,11 +51,22 @@ defmodule MyApp.Factory do
     Map.merge(base_params, params)
   end
 
-  # Associations: assoc/4 accepts a prebuilt struct, params to build one from, or nothing
-  deffactory post(params \\ %{}), struct: Post do
-    base_params = %{title: FactoryMan.sequence("post", fn n -> "Post ##{n}" end)}
+  deffactory tag(params \\ %{}), struct: Tag do
+    base_params = %{name: FactoryMan.sequence("tag")}
 
-    params = Map.put(params, :author, FactoryMan.assoc(params, :author, &build_user_struct/1, struct: User))
+    Map.merge(base_params, params)
+  end
+
+  # Associations can be generated inline from their factories
+  deffactory post(params \\ %{}), struct: Post do
+    base_params = %{
+      title: FactoryMan.sequence("post", fn n -> "Post ##{n}" end),
+      author: build_user_struct(%{username: "post-author"}),
+      tags: [
+        build_tag_struct(%{name: "elixir"}),
+        build_tag_struct(%{name: "testing"})
+      ]
+    }
 
     Map.merge(base_params, params)
   end
