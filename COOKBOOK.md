@@ -3,6 +3,8 @@
 Recipes for common factory patterns. The full API reference lives in the
 [`FactoryMan` module documentation](https://hexdocs.pm/factory_man/FactoryMan.html).
 
+> NOTE: This section was LLM-generated and needs work.
+
 ## Building associations
 
 Use `FactoryMan.assoc/4` to let callers pass a prebuilt association, params to build one from,
