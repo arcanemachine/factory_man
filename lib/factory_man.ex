@@ -522,8 +522,9 @@ defmodule FactoryMan do
 
   ## Cookbook
 
-  Recipes for common patterns — building associations, post-build presets, validated
-  presets — live in the [Cookbook](cookbook.html) guide.
+  A practical progression from a first factory through realistic defaults, variants,
+  associations, suite organization, hooks, strict params, and advanced presets lives in the
+  [Cookbook](cookbook.html) guide.
 
   ## Reflection and Debugging
 

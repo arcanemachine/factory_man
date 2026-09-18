@@ -6,6 +6,8 @@ generates functions for building params, structs, and database records.
 Inspired by [ExMachina](https://hex.pm/packages/ex_machina), but with a different API and feature
 set.
 
+Looking for recipes? See the [Cookbook](COOKBOOK.md).
+
 ## Installation
 
 Add FactoryMan to your `mix.exs` dependencies:
@@ -13,7 +15,7 @@ Add FactoryMan to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:factory_man, "~> 0.11.1", only: [:dev, :test]}
+    {:factory_man, "~> 0.12.0", only: [:dev, :test]}
   ]
 end
 ```
@@ -246,5 +248,5 @@ The full reference lives in the
 - **Factory inheritance** (`extends:`) — share repo, hooks, and helper functions
 - **Direct struct factories** (`body: :struct`) — full control over struct construction
 - **Embedded schemas** — build-only factories, detected automatically
-- **[Cookbook](COOKBOOK.md)** — recipes for common patterns like building associations and
-  post-build/validated presets
+- **[Cookbook](COOKBOOK.md)** — a practical progression from a first factory through realistic
+  defaults, variants, associations, suite organization, hooks, strict params, and advanced presets
