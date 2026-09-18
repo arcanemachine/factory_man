@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Declarative `associations:` support for Ecto-backed factories. Association schemas and
+  cardinality are derived from Ecto; same-module factories use atom references and cross-module
+  factories use `{FactoryModule, :factory}` references. Caller-provided nested params are
+  normalized into associated structs while missing keys continue to use factory defaults.
+
+### Changed
+
+- **Breaking:** `FactoryMan.assoc/2,3` and `FactoryMan.assoc_list/2,3` now resolve a value or list
+  directly instead of extracting a value from a parent params map. The keyed interfaces and
+  `on_missing:` option are removed.
+- The low-level helpers' optional `struct:` check now validates builder results as well as supplied
+  structs. Invalid builder results raise `ArgumentError`.
+
 ## [0.11.1] - 2026-09-15
 
 ### Changed

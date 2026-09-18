@@ -7,33 +7,109 @@ Recipes for common factory patterns. The full API reference lives in the
 
 ## Building associations
 
-Use `FactoryMan.assoc/4` to let callers pass a prebuilt association, params to build one from,
-or nothing at all:
+For Ecto-backed factories, use the declarative `:associations` option. Ecto supplies the
+associated schema and whether each association is singular or plural; the factory reference
+supplies the builder. An atom refers to a factory in the current module, while a tuple refers to
+a factory in another module:
 
 ```elixir
-deffactory post(params \\ %{}), struct: Post do
-  base_params = %{title: FactoryMan.sequence("post")}
+defmodule MyApp.AccountFactory do
+  use FactoryMan
 
-  params =
-    Map.put(params, :author, FactoryMan.assoc(params, :author, &build_author_struct/1, struct: Author))
+  alias MyApp.Accounts.User
 
-  Map.merge(base_params, params)
+  deffactory user(params \\ %{}), struct: User do
+    base_params = %{username: FactoryMan.sequence("user")}
+
+    Map.merge(base_params, params)
+  end
 end
 
-build_post_struct()                          # builds a default author
-build_post_struct(%{author: my_author})      # reuses the given struct
-build_post_struct(%{author: %{name: "Ann"}}) # builds an author from params
+defmodule MyApp.BlogFactory do
+  use FactoryMan
+
+  alias MyApp.Blog.{Post, Tag}
+
+  deffactory tag(params \\ %{}), struct: Tag do
+    base_params = %{name: FactoryMan.sequence("tag")}
+
+    Map.merge(base_params, params)
+  end
+
+  deffactory post(params \\ %{}),
+    struct: Post,
+    associations: [author: {MyApp.AccountFactory, :user}, tags: :tag] do
+    base_params = %{
+      title: FactoryMan.sequence("post"),
+      author: MyApp.AccountFactory.build_user_struct(),
+      tags: []
+    }
+
+    Map.merge(base_params, params)
+  end
+end
+
+# Missing associations use the factory defaults
+MyApp.BlogFactory.build_post_struct()
+
+# Nested maps are built through the configured factories
+MyApp.BlogFactory.build_post_struct(%{
+  author: %{username: "Ann"},
+  tags: [%{name: "Elixir"}]
+})
+
+# Existing structs are reused
+MyApp.BlogFactory.build_post_struct(%{author: existing_user, tags: [existing_tag]})
+
+# Lists may mix existing structs and nested params
+MyApp.BlogFactory.build_post_struct(%{
+  author: existing_user,
+  tags: [existing_tag, %{name: "Testing"}]
+})
 ```
 
-In merge-style factories, resolve into `params` (as above), not into the defaults map — the
-final `Map.merge` would clobber a resolved default with the caller's raw input. Factories
-with `body: :struct` don't merge, so they can use `FactoryMan.assoc/4` directly in field
-position.
+Only keys present in the caller's params are normalized. Missing keys remain missing, so the
+factory's `base_params` still supplies defaults and the body keeps the usual final merge.
+Association values must be a struct or params map for singular associations, and a list of
+structs and/or params maps for plural associations. Explicit `nil` is valid for a singular
+association; use `[]` for an empty plural association. This option currently supports direct Ecto
+associations only; embeds and `:through` associations are not supported.
 
-The `struct:` option raises on a struct of the wrong type — without it, a mistyped value
-would be reused silently. See `FactoryMan.assoc/4` for the full semantics (`:inherit`
-defaults, optional associations via `on_nil: :keep` and `on_missing: nil`) and
-`FactoryMan.assoc_list/4` for `has_many`-style lists.
+Normalization runs after `before_build_params` and before the factory body. With `body: :struct`,
+normalization runs before the body without enabling params-stage hooks. Associated factories
+process their own configured nested associations.
+
+Missing keys are not automatically built by this option. Keep association defaults in the body.
+An eager default runs even when the caller overrides it; use a lazy default when needed:
+
+```elixir
+base_params = %{
+  title: FactoryMan.sequence("post"),
+  author: fn -> MyApp.AccountFactory.build_user_struct() end,
+  tags: []
+}
+
+Map.merge(base_params, params)
+```
+
+The normal lazy-evaluation stage evaluates that default only if it survives the merge. Do not
+write defaults that endlessly build each other—for example, a user's default post building a
+default author who builds another default post.
+
+For plain structs or custom builder functions, the lower-level value resolvers are available:
+
+```elixir
+FactoryMan.assoc(author_or_params, &build_author_struct/1, struct: Author)
+FactoryMan.assoc_list(tags_or_params, &build_tag_struct/1, struct: Tag)
+```
+
+These helpers accept an existing struct or params for building one. `:inherit` supplies defaults
+beneath params maps. `assoc/3` builds nil by default and supports `on_nil: :keep` to preserve it;
+`assoc_list/3` treats an outer nil as `[]` but rejects nil members.
+
+The optional `struct:` check validates both existing structs and builder results. Without it, the
+callback remains generic. If the input is already known to be a params map, a direct factory call
+is simpler than a resolver.
 
 When the schema only needs a foreign key (and the record must exist), insert the association
 and use its ID:

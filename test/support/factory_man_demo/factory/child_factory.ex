@@ -13,12 +13,11 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     Map.merge(base_params, params)
   end
 
-  deffactory author(params \\ %{}), struct: Author do
-    base_params = %{name: "Some author"}
-
-    # Resolve into `params` (not `base_params`) so the final merge keeps the resolved value
-    params =
-      Map.put(params, :user, FactoryMan.assoc(params, :user, &build_user_struct/1, struct: User))
+  deffactory author(params \\ %{}), struct: Author, associations: [user: :user] do
+    base_params = %{
+      name: "Some author",
+      user: build_user_struct()
+    }
 
     Map.merge(base_params, params)
   end

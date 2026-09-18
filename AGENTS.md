@@ -15,6 +15,7 @@ examples — do not modify them unless specifically asked.
 lib/
   factory_man.ex              # Main module — core macro system
   factory_man/
+    associations.ex           # Association configuration, validation, and value resolution
     codegen.ex                # Shared codegen templates for deffactory/defvariant
     params.ex                 # Ecto struct -> clean params map (build_*_params)
     sequence.ex               # Sequence generation (Agent-based counter)
@@ -73,8 +74,15 @@ Key rules:
 - `body: :struct` is ignored for non-struct factories — their `build_*` functions are always generated
 - Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
 - You must merge `params` yourself — FactoryMan does not auto-merge
-- Resolve associations with `FactoryMan.assoc/4`/`FactoryMan.assoc_list/4` (accepts a prebuilt
-  struct, a params map, or nothing; `on_missing: nil` + `on_nil: :keep` for optional associations)
+- For Ecto factories, use `associations: [field: :factory]` (or
+  `field: {FactoryModule, :factory}` across modules) to normalize caller-provided nested params;
+  derive defaults with direct factory calls and keep the final `Map.merge(base_params, params)`
+- Advanced value resolution uses `FactoryMan.assoc/2,3`/`FactoryMan.assoc_list/2,3` with a prebuilt
+  struct or params map; `assoc/2,3` supports `on_nil: :keep` for optional values
+- Declarative associations preserve singular nil, require lists for plural associations, and leave
+  missing keys untouched. Embeds and through associations are not supported.
+- Same-module targets must be registered in that module. Use `{Module, :factory}` for factories
+  supplied by another module, including ancestor factories.
 - Helper functions are **not** imported by `use FactoryMan` — always call them qualified
   (`FactoryMan.assoc(...)`, `FactoryMan.sequence(...)`). Only `deffactory`/`defvariant` are imported.
 - Lazy evaluation (0-arity and 1-arity functions) works in both maps and keyword lists
@@ -107,7 +115,8 @@ For **embedded schemas**, `insert_*` functions are automatically skipped.
 
 ```
 build_user_struct:
-  before_build_params -> [factory body + lazy eval] -> after_build_params
+  strict validation -> before_build_params -> configured association normalization
+  -> [factory body + lazy eval] -> after_build_params
   -> before_build_struct -> struct!() -> after_build_struct
 
 build_user_params (calls build_user_struct internally):

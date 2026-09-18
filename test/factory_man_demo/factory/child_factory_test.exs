@@ -127,6 +127,41 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
   # ── Associations ─────────────────────────────────────────────────
 
   describe "associations" do
+    test "inserts an association supplied as nested params" do
+      username = "nested-#{System.unique_integer([:positive, :monotonic])}"
+
+      author = ChildFactory.insert_author(%{user: %{username: username}})
+      loaded = Repo.preload(author, :user)
+
+      assert is_integer(author.id)
+      assert is_integer(author.user_id)
+      assert loaded.user.id == author.user_id
+      assert loaded.user.username == username
+    end
+
+    test "insert lists build and persist each nested association independently" do
+      authors =
+        ChildFactory.insert_author_list(3, %{
+          user: %{
+            username: fn ->
+              "nested-list-#{System.unique_integer([:positive, :monotonic])}"
+            end
+          }
+        })
+
+      loaded = Repo.preload(authors, :user)
+
+      assert length(loaded) == 3
+      assert length(Enum.uniq(Enum.map(loaded, & &1.id))) == 3
+      assert length(Enum.uniq(Enum.map(loaded, & &1.user_id))) == 3
+      assert length(Enum.uniq(Enum.map(loaded, & &1.user.username))) == 3
+
+      assert Enum.all?(loaded, fn author ->
+               author.user.id == author.user_id and
+                 String.starts_with?(author.user.username, "nested-list-")
+             end)
+    end
+
     test "factory auto-builds associated records" do
       author = ChildFactory.build_author_struct()
 
@@ -141,16 +176,18 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert author.user.username == "provided-user"
     end
 
-    test "caller can provide association params (built via assoc/4)" do
+    test "caller can provide association params (built via associations:)" do
       author = ChildFactory.build_author_struct(%{user: %{username: "from-params"}})
 
       assert %User{username: "from-params"} = author.user
     end
 
     test "an association of the wrong struct type raises" do
-      assert_raise ArgumentError, ~r/expected :user to be a FactoryManDemo.Users.User/, fn ->
-        ChildFactory.build_author_struct(%{user: %Author{}})
-      end
+      assert_raise ArgumentError,
+                   ~r/expected association :user to be a FactoryManDemo.Users.User/,
+                   fn ->
+                     ChildFactory.build_author_struct(%{user: %Author{}})
+                   end
     end
 
     test "inserted association is persisted and preloadable" do

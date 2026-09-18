@@ -74,6 +74,7 @@ defmodule FactoryMan.MixProject do
       formatters: ["html"],
       main: "readme",
       source_ref: "v#{@version}",
+      skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       before_closing_body_tag: &before_closing_body_tag/1
     ]
   end

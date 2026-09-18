@@ -57,8 +57,9 @@ defmodule FactoryMan do
   string-keyed functions. Inserts require a configured repo and `insert?` not set to `false`. Setting
   `body: :struct` changes how the struct is built, not which function families are generated.
 
-  The diagram shows the build pipeline with `body: :params`. Each function shown has a list
-  counterpart that builds every item independently. `insert_user_struct`, not shown, starts at the
+  The diagram shows the build pipeline with `body: :params`. Configured `:associations` are
+  normalized after `before_build_params` and before the factory body. Each function shown has a
+  list counterpart that builds every item independently. `insert_user_struct`, not shown, starts at the
   insert pipeline and has no list counterpart:
 
   ```mermaid
@@ -138,21 +139,51 @@ defmodule FactoryMan do
   functions are resolved at build time. Non-map, non-keyword-list values are passed through
   unchanged.
 
-  **Associations** — resolve related records with `assoc/4` (see the [Cookbook](cookbook.html)):
+  **Associations** — configure nested params with the `:associations` option (see the
+  [Cookbook](cookbook.html)):
 
   ```elixir
-  deffactory author(params \\\\ %{}), struct: Author do
-    base_params = %{name: "Test Author"}
-
-    params = Map.put(params, :user, FactoryMan.assoc(params, :user, &build_user_struct/1, struct: User))
+  deffactory author(params \\\\ %{}), struct: Author, associations: [user: :user] do
+    base_params = %{
+      name: "Test Author",
+      user: build_user_struct()
+    }
 
     Map.merge(base_params, params)
   end
   ```
 
-  Resolve into `params` rather than into the defaults map: the final `Map.merge` gives `params`
-  the last word, so a value resolved only in the defaults would be clobbered by the caller's
-  raw input.
+  The association key is resolved only when supplied by the caller. A nested params map becomes
+  the associated struct, while an existing struct is reused. Missing keys continue to use the
+  factory's ordinary `base_params` defaults.
+
+  Association targets are factory names, not schema names:
+
+  - `associations: [user: :user]` references a factory registered in the current module.
+  - `associations: [user: {MyApp.AccountFactory, :user}]` references another factory module.
+  - Registered variants can be targets using their full registered names.
+
+  Ecto supplies the related schema and cardinality. Factory references are checked at runtime,
+  including when the caller omits an association key. A same-module target may therefore be
+  declared later in the module. The atom shorthand does not search imported or ancestor modules;
+  use an explicit module tuple for those factories.
+
+  | Caller value | Singular association | Plural association |
+  | --- | --- | --- |
+  | Key absent | Leave absent; body defaults apply | Leave absent; body defaults apply |
+  | Params map | Build through the configured factory | Raise |
+  | Correct struct | Reuse unchanged | Raise; supply a list |
+  | `nil` | Preserve nil | Raise; use `[]` |
+  | List of maps/structs | Raise | Resolve each member in order |
+
+  Wrong struct types, invalid list members, and incorrectly typed builder results raise. Only
+  configured keys are normalized. Direct Ecto associations are supported; embeds and through
+  associations are not. Normalization calls struct builders, not insert functions.
+
+  Factory defaults remain ordinary Elixir expressions: eager default builders run even when
+  overridden. Use existing lazy attributes when a default should only be built if retained.
+  FactoryMan does not automatically build omitted relationships or prevent recursion caused by
+  mutually recursive default builders.
 
   ## Params Functions
 
@@ -191,10 +222,15 @@ defmodule FactoryMan do
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct). Ignored for non-struct factories.
   - `:hooks` — Merged with module-level hooks
+  - `:associations` — Keyword list mapping Ecto association keys to FactoryMan factories. Use an
+    atom for a same-module factory or `{FactoryModule, :factory}` across modules. Ecto supplies
+    the associated schema and cardinality; caller-provided nested params are normalized before the
+    factory body runs.
   - `:strict` — Reject unknown param keys at the factory boundary (see Strict Params below)
 
-  Options that only apply to struct factories (`:body`, `:strict`) cascade harmlessly from the
-  module level — they are ignored by non-struct factories.
+  Options that only apply to struct factories (`:body`, `:associations`, `:strict`) cascade
+  from the module level. `:body` and `:strict` are ignored by non-struct factories; non-empty
+  `:associations` requires an Ecto-backed struct factory.
 
   ## Strict Params
 
@@ -242,7 +278,8 @@ defmodule FactoryMan do
 
   ```text
   build_user_struct:
-    before_build_params → [factory body + lazy eval] → after_build_params
+    strict validation → before_build_params → configured association normalization
+    → [factory body + lazy eval] → after_build_params
     → before_build_struct → struct!() → after_build_struct
 
   build_user_params (calls build_user_struct internally):
@@ -251,6 +288,11 @@ defmodule FactoryMan do
   insert_user (calls build_user_struct internally):
     → before_insert → Repo.insert!() → after_insert
   ```
+
+  With `body: :struct`, configured associations are normalized after strict validation and before
+  the body. Params-stage hooks remain skipped. Variants preprocess input before delegating to the
+  base builder, which performs normalization. `insert_*_struct` receives an already-built struct
+  and does not run association normalization.
 
   For non-struct factories, `build_*` runs `before_build_params`, the factory body with lazy
   evaluation, then `after_build_params`.
@@ -524,7 +566,7 @@ defmodule FactoryMan do
       unquote_splicing(parent_imports)
 
       # Only the definition macros are imported — they read as DSL keywords. Helper functions
-      # (assoc/4, sequence/1,2,3, ...) are deliberately not imported: they are called with the
+      # (assoc/3, assoc_list/3, sequence/1,2,3, ...) are deliberately not imported: they are called with the
       # FactoryMan. prefix so their origin is explicit and generic names cannot collide (e.g.
       # with Ecto.assoc/2).
       import unquote(__MODULE__),
@@ -619,6 +661,12 @@ defmodule FactoryMan do
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct). Ignored for non-struct factories.
   - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
+  - `:associations` - A keyword list mapping Ecto association keys to FactoryMan factories. Use
+    `:user` for a factory in the current module or `{FactoryModule, :user}` for a cross-module
+    factory. Ecto supplies the associated schema and cardinality; caller-provided nested params
+    are normalized into associated structs before the body. Missing keys remain untouched so
+    `base_params` continues to provide defaults. Direct associations are supported; embeds and
+    `:through` associations are not.
   - `:strict` - Set to `true` to raise on param keys that are not fields of the `:struct`
     option's struct, or `[allow: [...]]` to permit specific extra keys (see the Strict Params
     section). Ignored for non-struct factories.
@@ -677,6 +725,7 @@ defmodule FactoryMan do
     has_pattern_match = extraction.has_pattern_match
     has_default = extraction.has_default
     plain_var_ast = extraction.plain_var
+    caller_module = __CALLER__.module
 
     quote bind_quoted: [
             factory_name: factory_name,
@@ -686,6 +735,7 @@ defmodule FactoryMan do
             has_pattern_match: has_pattern_match,
             has_default: has_default,
             plain_var_ast: Macro.escape(plain_var_ast, unquote: true),
+            caller_module: caller_module,
             opts: opts,
             block: Macro.escape(block, unquote: true)
           ] do
@@ -726,6 +776,29 @@ defmodule FactoryMan do
 
       # Extract hooks - used many times throughout
       hooks = Keyword.get(merged_opts, :hooks, [])
+
+      association_specs =
+        FactoryMan.Associations.compile_specs!(
+          caller_module,
+          factory_name,
+          merged_opts[:struct],
+          Keyword.get(merged_opts, :associations, [])
+        )
+
+      association_step =
+        if association_specs == [] do
+          nil
+        else
+          quote do
+            unquote(user_var) =
+              FactoryMan.Associations.normalize_params!(
+                unquote(user_var),
+                unquote(Macro.escape(association_specs)),
+                unquote(caller_module),
+                unquote(factory_name)
+              )
+          end
+        end
 
       projections = %{
         head_ast: head_ast,
@@ -785,6 +858,8 @@ defmodule FactoryMan do
                 unquote(user_var)
               )
 
+            unquote(association_step)
+
             unquote(block)
             |> FactoryMan.evaluate_lazy_attributes()
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
@@ -801,6 +876,8 @@ defmodule FactoryMan do
               unquote(merged_opts[:struct]),
               unquote(factory_name)
             )
+
+            unquote(association_step)
 
             unquote(block)
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
@@ -1168,160 +1245,59 @@ defmodule FactoryMan do
   defp plain_var({var_name, _, _}) when is_atom(var_name), do: Macro.var(var_name, nil)
 
   @doc """
-  Resolve an association value from factory params.
+  Resolve one association value.
 
-  Factories commonly accept an association as either a prebuilt struct, a params map to build
-  one from, or nothing at all. `assoc/4` resolves all of those with one call:
+  A params map is passed to `build_fun`; an existing struct is reused without calling the builder;
+  and `nil` builds with the default `%{}` params, or `:inherit` when supplied. For ordinary Ecto
+  factory associations, prefer the `:associations` factory option.
 
-  ```elixir
-  deffactory post(params \\\\ %{}), struct: Post do
-    base_params = %{title: FactoryMan.sequence("post")}
+  This helper is useful when a caller accepts either an already-built struct or params for building
+  one. It does not inspect or modify a containing factory params map.
 
-    params =
-      Map.put(params, :author, FactoryMan.assoc(params, :author, &build_author_struct/1, struct: Author))
-
-    Map.merge(base_params, params)
-  end
-  ```
-
-  In merge-style factories, resolve into `params` (as above) so the final `Map.merge` keeps the
-  resolved value; `body: :struct` factories can call `assoc/4` directly in field position.
-
-  | `params[key]`                       | Result                                |
-  | ----------------------------------- | ------------------------------------- |
-  | key absent                          | `build_fun.(inherit)`                 |
-  | key absent (with `on_missing: nil`) | `nil`                                 |
-  | `nil` (with `on_nil: :build`)       | `build_fun.(inherit)`                 |
-  | `nil` (with `on_nil: :keep`)        | `nil`                                 |
-  | struct matching `:struct`           | reused as-is                          |
-  | struct not matching `:struct`       | raises `ArgumentError`                |
-  | any struct (no `:struct` option)    | reused as-is                          |
-  | params map                          | `build_fun.(Map.merge(inherit, map))` |
-  | anything else                       | raises `ArgumentError`                |
-
-  `build_fun` is any 1-arity function — a `build_*` function for in-memory associations, or an
-  `insert_*` function when the association must be persisted.
+  `build_fun` is any 1-arity function that receives params for a new associated value.
 
   ## Options
 
-  - `:struct` — the struct module a passed-in struct must match; any other struct type raises.
-    Recommended whenever the association has a known type: without it, a struct of the wrong
-    type is reused without complaint.
-  - `:inherit` — default params for the built association (default: `%{}`). Used as the
-    `build_fun` argument when building, and merged *under* a caller-supplied params map (the
-    caller's keys win).
-  - `:on_nil` — what an explicit `nil` value means: `:build` (default) treats it like a missing
-    key; `:keep` returns `nil`, for optional associations.
-  - `:on_missing` — what a missing key means: `:build` (default) builds the default
-    association; `nil` returns `nil`, for associations that only exist when the caller
-    supplies one. Independent of `:on_nil`; sites treating "absent" and "explicit `nil`" the
-    same typically pair `on_missing: nil` with `on_nil: :keep`.
+  - `:struct` — validate supplied structs and builder results against this module.
+  - `:inherit` — params merged below a supplied params map before building (default: `%{}`).
+  - `:on_nil` — `:build` (default) builds a nil value; `:keep` preserves nil.
 
   ## Examples
 
-      # Nothing passed — the default association is built
-      FactoryMan.assoc(%{}, :author, &build_author_struct/1)
-
-      # A struct is reused as-is
-      FactoryMan.assoc(%{author: %Author{name: "Ann"}}, :author, &build_author_struct/1, struct: Author)
-
-      # A params map builds the association from those params
-      FactoryMan.assoc(%{author: %{name: "Ann"}}, :author, &build_author_struct/1, struct: Author)
+      FactoryMan.assoc(%{name: "Ann"}, &build_author_struct/1)
+      FactoryMan.assoc(existing_author, &build_author_struct/1, struct: Author)
+      FactoryMan.assoc(nil, &build_author_struct/1, on_nil: :keep)
   """
-  def assoc(params, key, build_fun, opts \\ [])
-      when is_map(params) and is_function(build_fun, 1) and is_list(opts) do
-    inherit = Keyword.get(opts, :inherit, %{})
-    on_nil = Keyword.get(opts, :on_nil, :build)
-    on_missing = Keyword.get(opts, :on_missing, :build)
-
-    if on_nil not in [:build, :keep] do
-      raise ArgumentError,
-            "invalid :on_nil option: #{inspect(on_nil)}. Expected :build (default) or :keep."
-    end
-
-    if on_missing not in [:build, nil] do
-      raise ArgumentError,
-            "invalid :on_missing option: #{inspect(on_missing)}. " <>
-              "Expected :build (default) or nil."
-    end
-
-    case Map.fetch(params, key) do
-      :error when on_missing == nil -> nil
-      :error -> build_fun.(inherit)
-      {:ok, nil} when on_nil == :keep -> nil
-      {:ok, nil} -> build_fun.(inherit)
-      {:ok, value} -> resolve_assoc_value(value, key, build_fun, inherit, opts[:struct])
-    end
+  @spec assoc(any(), (map() -> any()), keyword()) :: any()
+  def assoc(value, build_fun, opts \\ []) do
+    FactoryMan.Associations.resolve(value, build_fun, opts)
   end
 
   @doc """
-  Resolve a list of association values from factory params.
+  Resolve a list of association values.
 
-  A missing key or `nil` resolves to `[]`. Otherwise the value must be a list, and each element
-  is resolved independently with `assoc/4` semantics: structs are reused (and type-checked
-  against `:struct` when given), params maps are built via `build_fun`, and anything else
-  raises. Mixed lists are fine.
+  `nil` and `[]` resolve to `[]`. Each list item must be either a params map or an existing
+  struct. Params maps are passed to `build_fun`, while structs are reused without invoking it.
+  Mixed lists are supported and preserve their order. Nil elements inside a list are rejected.
+  Unlike the declarative `:associations` option, this low-level helper treats an outer nil
+  collection as an empty list.
 
-  Accepts the `:struct` and `:inherit` options from `assoc/4`.
+  ## Options
+
+  - `:struct` — validate supplied structs and builder results against this module.
+  - `:inherit` — params merged below each supplied params map before building (default: `%{}`).
 
   ## Examples
 
-      deffactory post(params \\\\ %{}), struct: Post do
-        base_params = %{title: FactoryMan.sequence("post")}
-
-        params =
-          Map.put(
-            params,
-            :comments,
-            FactoryMan.assoc_list(params, :comments, &build_comment_struct/1, struct: Comment)
-          )
-
-        Map.merge(base_params, params)
-      end
-
-      # Two comments built from params, one reused
-      build_post_struct(%{comments: [%{body: "a"}, %{body: "b"}, existing_comment]})
+      FactoryMan.assoc_list(
+        [%{body: "a"}, existing_comment],
+        &build_comment_struct/1,
+        struct: Comment
+      )
   """
-  def assoc_list(params, key, build_fun, opts \\ [])
-      when is_map(params) and is_function(build_fun, 1) and is_list(opts) do
-    inherit = Keyword.get(opts, :inherit, %{})
-
-    case Map.fetch(params, key) do
-      :error ->
-        []
-
-      {:ok, nil} ->
-        []
-
-      {:ok, list} when is_list(list) ->
-        Enum.map(list, &resolve_assoc_value(&1, key, build_fun, inherit, opts[:struct]))
-
-      {:ok, other} ->
-        raise ArgumentError,
-              "expected #{inspect(key)} to be a list of structs and/or params maps, " <>
-                "got: #{inspect(other)}"
-    end
-  end
-
-  defp resolve_assoc_value(%struct_type{} = value, key, _build_fun, _inherit, expected_struct) do
-    if is_nil(expected_struct) or struct_type == expected_struct do
-      value
-    else
-      raise ArgumentError,
-            "expected #{inspect(key)} to be a #{inspect(expected_struct)} struct or a params " <>
-              "map, got: #{inspect(value)}"
-    end
-  end
-
-  defp resolve_assoc_value(value, _key, build_fun, inherit, _expected_struct)
-       when is_map(value) do
-    build_fun.(Map.merge(inherit, value))
-  end
-
-  defp resolve_assoc_value(value, key, _build_fun, _inherit, _expected_struct) do
-    raise ArgumentError,
-          "expected #{inspect(key)} to be a struct, a params map, or nil, got: #{inspect(value)}"
-  end
+  @spec assoc_list(any(), (map() -> any()), keyword()) :: list()
+  def assoc_list(values, build_fun, opts \\ []),
+    do: FactoryMan.Associations.resolve_list(values, build_fun, opts)
 
   @doc """
   Evaluate lazy attributes in a map, struct, or keyword list.
