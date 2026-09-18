@@ -165,6 +165,9 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
 
 - **Use `MIX_ENV=test` for non-test commands** (e.g. `iex -S mix`, `mix compile`) — factories are
   in `test/support/` and only compiled under the test env. `mix test` sets this automatically.
+- Public functions that exist only for macro-generated code or other internal plumbing must use
+  `@doc false`. Do not publish API documentation whose purpose is merely to explain that a
+  function is internal; keep necessary implementation context in source comments instead.
 - When you complete a task:
   1. Review your changes for optimization opportunities
   2. Update relevant documentation (module docs, AGENTS.md, CHANGELOG.md) and ensure all docs

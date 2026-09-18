@@ -1300,35 +1300,7 @@ defmodule FactoryMan do
   def assoc_list(values, build_fun, opts \\ []),
     do: FactoryMan.Associations.resolve_list(values, build_fun, opts)
 
-  @doc """
-  Evaluate lazy attributes in a map, struct, or keyword list.
-
-  Functions with 0 arity are called with no arguments.
-  Functions with 1 arity receive the parent factory (map, struct, or keyword list) as their
-  argument.
-
-  Non-map, non-keyword-list values are passed through unchanged.
-
-  ## Examples
-
-      iex> FactoryMan.evaluate_lazy_attributes(
-      ...> %{name: "test", timestamp: fn -> System.os_time() end}
-      ...> )
-      %{name: "test", timestamp: 12345}
-
-      iex> FactoryMan.evaluate_lazy_attributes(
-      ...>   %{first: "John", last: fn attrs -> attrs.first <> " Smith" end}
-      ...> )
-      %{first: "John", last: "John Smith"}
-
-      iex> FactoryMan.evaluate_lazy_attributes(
-      ...>   [timeout: 5000, created_at: fn -> DateTime.utc_now() end]
-      ...> )
-      [timeout: 5000, created_at: ~U[2026-01-01 00:00:00Z]]
-
-      iex> FactoryMan.evaluate_lazy_attributes("plain string")
-      "plain string"
-  """
+  @doc false
   @spec evaluate_lazy_attributes(any) :: any
   def evaluate_lazy_attributes(%{__struct__: record} = factory) do
     struct!(record, factory |> Map.from_struct() |> do_evaluate_lazy_attributes(factory))
@@ -1360,43 +1332,13 @@ defmodule FactoryMan do
     end)
   end
 
-  @doc """
-  The default handler for hooks. This function is a no-op, and simply returns the given `value`
-  without any modifications.
-
-  ## Examples
-
-      iex> FactoryMan.fallback_hook_handler(123)
-      123
-  """
+  @doc false
   def fallback_hook_handler(value), do: value
 
-  @doc """
-  Get the configured handler for a `hook`, or fall back to `&FactoryMan.fallback_hook_handler/1`.
-
-  ## Examples
-
-      iex> hooks = [after_insert: &YourProject.Factories.Users.user_after_insert_handler/1]
-
-      iex> FactoryMan.get_hook_handler(hooks, :before_build)
-      &FactoryMan.fallback_hook_handler/1
-
-      iex> FactoryMan.get_hook_handler(hooks, :after_insert)
-      &YourProject.Factories.Users.user_after_insert_handler/1
-  """
+  @doc false
   def get_hook_handler(hooks, hook), do: hooks[hook] || (&FactoryMan.fallback_hook_handler/1)
 
-  @doc """
-  Validate params against a strict factory's allowed keys.
-
-  `strict` is the compile-time-parsed `:strict` option: `false` (disabled) or a list of extra
-  allowed keys. Allowed keys are the struct's keys plus the extras; any other key raises.
-  Non-map params are passed through (they fail downstream the same way they would without
-  strict checking).
-
-  This is a FactoryMan internal function — called from macro-generated code. Use the underscore
-  prefix convention to signal that it is not part of the public API.
-  """
+  @doc false
   def _validate_strict_params!(params, false = _strict, _struct_module, _factory_name),
     do: params
 
@@ -1417,15 +1359,7 @@ defmodule FactoryMan do
 
   def _validate_strict_params!(params, _strict, _struct_module, _factory_name), do: params
 
-  @doc """
-  Merge child factory options into parent options.
-
-  Most options are overridden per-key, but `:hooks` are merged per hook key so that a child
-  setting one hook does not discard the parent's other hooks.
-
-  This is a FactoryMan internal function — called from macro-generated code. Use the underscore
-  prefix convention to signal that it is not part of the public API.
-  """
+  @doc false
   def _merge_opts(parent_opts, child_opts) do
     merged_hooks =
       Keyword.merge(Keyword.get(parent_opts, :hooks, []), Keyword.get(child_opts, :hooks, []))
