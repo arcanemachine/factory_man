@@ -43,6 +43,7 @@ test/
   factory_man/
     assoc_test.exs
     extends_test.exs
+    lazy_evaluation_test.exs
     sequence_test.exs
     strict_params_test.exs
   factory_man_demo/
@@ -70,7 +71,8 @@ Key rules:
 - With `struct:`, the factory body must return a **map** (not a struct) containing only the
   struct's fields, unless using `body: :struct`
 - With `body: :struct`, the body returns a **struct** directly (skips `struct!()`);
-  params functions are still generated, derived from the struct
+  params functions are still generated, derived from the struct, and the returned struct is
+  lazily evaluated
 - `body: :struct` is ignored for non-struct factories — their `build_*` functions are always generated
 - Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
 - You must merge `params` yourself — FactoryMan does not auto-merge
@@ -152,8 +154,9 @@ keyword list:
 }
 ```
 
-**Important:** 1-arity functions receive the map *before* lazy evaluation. Don't reference other
-lazy fields from a 1-arity function — they'll still be function references, not resolved values.
+**Important:** lazy values are resolved in two passes: the 0-arity functions first, then the
+1-arity ones. A 1-arity function sees plain and resolved 0-arity values, but not another 1-arity
+field, which is still a function reference when it runs.
 
 ### Sequences
 

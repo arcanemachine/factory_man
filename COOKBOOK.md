@@ -209,9 +209,28 @@ user = MyApp.Factory.build_user_struct(%{username: "alice", role: "admin"})
 assert user.display_name == "alice (admin)"
 ```
 
-One-arity functions receive the parent map **before** lazy evaluation. They can safely read ordinary
-fields such as `username` and `role`, but they should not depend on another field whose value is
-also a function.
+Lazy values are resolved in two passes. The zero-arity functions run first, then the one-arity
+functions receive the result. A one-arity function can therefore read a plain field such as
+`username`, or a zero-arity field such as `joined_at`, but not another one-arity field, which is
+still a function reference when it runs:
+
+```elixir
+base_params = %{
+  role: "member",
+  joined_at: fn -> DateTime.utc_now() end,
+  # Reads a plain field and a resolved zero-arity field
+  summary: fn user -> "#{user.role} since #{user.joined_at.year}" end
+}
+```
+
+Because the caller's params are merged before any of this happens, an override flows into the
+derived value as well:
+
+```elixir
+user = MyApp.Factory.build_user_struct(%{role: "admin"})
+
+assert user.summary =~ "admin since"
+```
 
 Lazy defaults also avoid work when a caller supplies an override. This matters most when the
 default builds another record:
@@ -768,7 +787,8 @@ MyApp.Factory.insert_anonymized_user()
 ```
 
 Params-stage hooks are skipped because the body does not perform params-to-struct conversion.
-`after_build_struct` and insert hooks still run. In the wrapper above, an `after_build_struct` hook
+Lazy values in the returned struct are still resolved, and `after_build_struct` and insert hooks
+still run. In the wrapper above, an `after_build_struct` hook
 runs once inside `build_user_struct/1` and again for the wrapping factory.
 
 Use direct struct bodies sparingly. A normal params body is easier to extend, compose, and inspect.

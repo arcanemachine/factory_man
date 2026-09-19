@@ -229,7 +229,7 @@ defmodule FactoryMan do
   - `:insert?` — Set to `false` to skip insert functions
   - `:body` — What the factory body returns: `:params` (default, a params map) or `:struct`
     (a struct built directly by the body). Params functions are generated either way (derived
-    from the struct). Ignored for non-struct factories.
+    from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
   - `:hooks` — Merged with module-level hooks
   - `:associations` — Keyword list mapping Ecto association keys to FactoryMan factories. Use an
     atom for a same-module factory or `{FactoryModule, :factory}` across modules. Ecto supplies
@@ -298,8 +298,9 @@ defmodule FactoryMan do
     → before_insert → Repo.insert!() → after_insert
   ```
 
-  With `body: :struct`, configured associations are normalized after strict validation and before
-  the body. Params-stage hooks remain skipped. Variants preprocess input before delegating to the
+  With `body: :struct`, configured associations are normalized after params validation and before
+  the body, and the struct the body returns is lazily evaluated. Params-stage hooks remain
+  skipped. Variants preprocess input before delegating to the
   base builder, which performs normalization. `insert_*_struct` receives an already-built struct
   and does not run association normalization.
 
@@ -472,8 +473,9 @@ defmodule FactoryMan do
 
   > #### Lazy evaluation ordering {: .warning}
   >
-  > 1-arity functions receive the map or keyword list **before** lazy evaluation. Don't reference
-  > other lazy fields — they'll still be function references, not resolved values.
+  > Lazy values are resolved in two passes: the 0-arity functions first, then the 1-arity ones.
+  > A 1-arity function therefore sees plain values and resolved 0-arity values, but not another
+  > 1-arity field, which is still a function reference when it runs.
 
   ## Embedded Schemas
 
@@ -521,8 +523,9 @@ defmodule FactoryMan do
   ```
 
   This generates the full function family, including `build_invoice_params` (derived from the
-  built struct). The `after_build_struct`, `before_insert`, and `after_insert` hooks still run.
-  The `before_build_params`, `after_build_params`, and `before_build_struct` hooks are skipped
+  built struct). Lazy values in the returned struct are resolved as they are in a params body.
+  The `after_build_struct`, `before_insert`, and `after_insert` hooks still run. The
+  `before_build_params`, `after_build_params`, and `before_build_struct` hooks are skipped
   since there is no params-to-struct conversion stage.
 
   `body: :struct` can also be set at the module level with `use FactoryMan, body: :struct`,
@@ -675,7 +678,7 @@ defmodule FactoryMan do
     repo is configured and struct is insertable)
   - `:body` - What the factory body returns: `:params` (default, a params map) or `:struct`
     (a struct built directly by the body). Params functions are generated either way (derived
-    from the struct). Ignored for non-struct factories.
+    from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
   - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
   - `:associations` - A keyword list mapping Ecto association keys to FactoryMan factories. Use
     `:user` for a factory in the current module or `{FactoryModule, :user}` for a cross-module
