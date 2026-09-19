@@ -7,13 +7,13 @@ defined with `deffactory`, and FactoryMan generates functions for building param
 database records.
 
 **FactoryMan is the product.** The blog schemas (Users, Authors, Posts, Tags) are just showcase
-examples — do not modify them unless specifically asked.
+examples. Do not modify them unless specifically asked.
 
 ## Project Structure
 
 ```
 lib/
-  factory_man.ex              # Main module — core macro system
+  factory_man.ex              # Main module: the core macro system
   factory_man/
     associations.ex           # Association configuration, validation, and value resolution
     codegen.ex                # Shared codegen templates for deffactory/defvariant
@@ -73,27 +73,27 @@ Key rules:
 - With `body: :struct`, the body returns a **struct** directly (skips `struct!()`);
   params functions are still generated, derived from the struct, and the returned struct is
   lazily evaluated
-- `body: :struct` is ignored for non-struct factories — their `build_*` functions are always generated
+- `body: :struct` is ignored for non-struct factories; their `build_*` functions are always generated
 - Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
-- You must merge `params` yourself — FactoryMan does not auto-merge
+- You must merge `params` yourself; FactoryMan does not auto-merge
 - For Ecto factories, use `associations: [field: :factory]` (or
   `field: {FactoryModule, :factory}` across modules) to normalize caller-provided nested params;
   derive defaults with direct factory calls and keep the final `Map.merge(base_params, params)`.
-  This option is factory-level only — it does not cascade from `use FactoryMan`
+  This option is factory-level only; it does not cascade from `use FactoryMan`
 - Imperative resolution uses `FactoryMan.assoc/3,4` and `FactoryMan.assoc_list/3,4` (read an
   association from the params map by key), or `FactoryMan.resolve_assoc/2,3` and
-  `FactoryMan.resolve_assoc_list/2,3` (resolve a value directly). They do not write back into
-  params, so a factory using them reads params selectively instead of ending in
-  `Map.merge(base_params, params)`
+  `FactoryMan.resolve_assoc_list/2,3` (resolve a value directly). They return the resolved value
+  and do not modify the params map, so a factory that ends in `Map.merge(base_params, params)`
+  must put the value back first (e.g. `Map.put(params, :author, author)`) or drop the key
 - An explicit `nil` is preserved by every association tool. An absent key builds (`assoc`, unless
   `default: nil`) or yields `[]` (`assoc_list`). A nil list raises. Embeds and through associations
   are not supported.
 - Same-module targets must be registered in that module. Use `{Module, :factory}` for factories
   supplied by another module, including ancestor factories.
-- Helper functions are **not** imported by `use FactoryMan` — always call them qualified
+- Helper functions are **not** imported by `use FactoryMan`. Always call them qualified
   (`FactoryMan.assoc(...)`, `FactoryMan.sequence(...)`). Only `deffactory`/`defvariant` are imported.
 - Lazy evaluation (0-arity and 1-arity functions) works in both maps and keyword lists
-- Factory names are atoms — the generated functions use that name
+- Factory names are atoms; the generated functions use that name
 - Opt-in `strict: true` (or `strict: [allow: [:extra_key]]`) rejects unknown param keys at
   build entry for struct factories; ignored for non-struct factories. Cascades from module level.
 
@@ -135,11 +135,11 @@ insert_user (calls build_user_struct internally):
 
 ### Common Anti-Patterns
 
-- **Don't pass keyword lists as params to struct factories.** Struct factories expect maps: `%{key: value}`, never `[key: value]` — a non-map raises at the factory boundary
+- **Don't pass keyword lists as params to struct factories.** Struct factories expect maps: `%{key: value}`, never `[key: value]`. A non-map raises at the factory boundary
 - **Don't forget `Map.merge(base_params, params)`** at the end of every struct/map factory body
-- **Don't use `build_user()` for struct factories** — the correct names include the type:
+- **Don't use `build_user()` for struct factories.** The correct names include the type:
   `build_user_struct()`, `build_user_params()`, `insert_user()`. Non-struct factories use `build_*()` directly.
-- **Don't create structs in the factory body** (unless using `body: :struct`). Return a plain map — the generated `build_*_struct` function handles struct conversion
+- **Don't create structs in the factory body** (unless using `body: :struct`). Return a plain map; the generated `build_*_struct` function handles struct conversion
 - **Don't define factories outside of modules that `use FactoryMan`**
 
 ### Lazy Evaluation
@@ -171,7 +171,7 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
 
 ## Development Notes
 
-- **Use `MIX_ENV=test` for non-test commands** (e.g. `iex -S mix`, `mix compile`) — factories are
+- **Use `MIX_ENV=test` for non-test commands** (e.g. `iex -S mix`, `mix compile`). Factories are
   in `test/support/` and only compiled under the test env. `mix test` sets this automatically.
 - Public functions that exist only for macro-generated code or other internal plumbing must use
   `@doc false`. Do not publish API documentation whose purpose is merely to explain that a
@@ -179,7 +179,7 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
 - When you complete a task:
   1. Review your changes for optimization opportunities
   2. Update relevant documentation (module docs, AGENTS.md, CHANGELOG.md) and ensure all docs
-     are consistent with the changes made. **Never modify old changelog entries** — only add new ones.
+     are consistent with the changes made. **Never modify old changelog entries.** Only add new ones.
   3. Run `mix format` and verify tests pass (`mix test`, or check the test-watch tmux session if running)
   4. Make a release commit following the existing git history format (see `git log` for examples)
 - If asked to work on this project, clarify: FactoryMan library or demo schemas?

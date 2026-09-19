@@ -10,10 +10,10 @@ defmodule FactoryMan.Codegen do
   #
   # The `projections` map carries the argument AST projections extracted from the factory head:
   #
-  # - `:head_ast` — argument with default, no pattern match (for bodiless function heads)
-  # - `:plain_var` — just the argument variable (for wrappers that don't destructure)
-  # - `:user_var` — the argument variable, for referencing in wrapper bodies
-  # - `:has_pattern_match` / `:has_default` — gate which convenience arities are generated
+  # - `:head_ast` - argument with default, no pattern match (for bodiless function heads)
+  # - `:plain_var` - just the argument variable (for wrappers that don't destructure)
+  # - `:user_var` - the argument variable, for referencing in wrapper bodies
+  # - `:has_pattern_match` / `:has_default` - gate which convenience arities are generated
 
   @doc """
   Whether `module` is a compiled Ecto schema.
@@ -103,7 +103,7 @@ defmodule FactoryMan.Codegen do
   @doc """
   `build_*_params` and `build_*_string_params` functions for struct factories, plus their
   `_list` variants. They build a struct via `build_<name>_struct` and convert it to a clean
-  params map — stripping Ecto metadata for Ecto schemas, or `Map.from_struct/1` for plain
+  params map, stripping Ecto metadata for Ecto schemas, or `Map.from_struct/1` for plain
   structs.
   """
   def params_fns(full_name, projections, ecto_schema?) do
@@ -217,7 +217,7 @@ defmodule FactoryMan.Codegen do
       end
 
     # When the pattern-match gate skips the conveniences, the /2 doc must ride on the
-    # (count, params) clause instead — it is then the first clause of that arity
+    # (count, params) clause instead, since it is then the first clause of that arity
     implementation_doc =
       if projections.has_pattern_match do
         quote do

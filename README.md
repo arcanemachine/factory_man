@@ -15,7 +15,7 @@ Add FactoryMan to your `mix.exs` dependencies:
 ```elixir
 def deps do
   [
-    {:factory_man, "~> 0.12.1", only: [:dev, :test]}
+    {:factory_man, "~> 0.13.0", only: [:dev, :test]}
   ]
 end
 ```
@@ -148,13 +148,13 @@ iex> Factory.build_api_payload_list(2)
 
 You write one factory, and FactoryMan generates the rest:
 
-- **`build_<name>_struct`** — builds the struct in memory (runs your body, resolves lazy values,
+- **`build_<name>_struct`** - builds the struct in memory (runs your body, resolves lazy values,
   calls `struct!/2`)
-- **`build_<name>_params`** / **`build_<name>_string_params`** — builds the struct, then converts
+- **`build_<name>_params`** / **`build_<name>_string_params`** - builds the struct, then converts
   it to a clean params map (Ecto metadata stripped) for changesets or controller tests
-- **`insert_<name>`** — builds the struct and inserts it with your configured repo
-- **`insert_<name>_struct`** — inserts an already-built struct through the same insert pipeline
-- **List builders** — `build_<name>_struct_list`, `build_<name>_params_list`, and
+- **`insert_<name>`** - builds the struct and inserts it with your configured repo
+- **`insert_<name>_struct`** - inserts an already-built struct through the same insert pipeline
+- **List builders** - `build_<name>_struct_list`, `build_<name>_params_list`, and
   `build_<name>_string_params_list` build each item independently. `insert_<name>_list` builds and
   inserts each item independently. `insert_<name>_struct` has no list counterpart.
 
@@ -163,13 +163,13 @@ Factories without a `struct:` option are simpler: they generate `build_<name>` a
 
 ## Which Function Should I Use?
 
-- **`build_*_params`** — For testing changesets, passing to functions that expect maps, or when no
+- **`build_*_params`** - For testing changesets, passing to functions that expect maps, or when no
   struct shape is needed.
 
-- **`build_*_struct`** — For setting association fields on other structs being built in memory. Use
+- **`build_*_struct`** - For setting association fields on other structs being built in memory. Use
   when the record doesn't need to exist in the database yet.
 
-- **`insert_*`** — When a foreign key constraint requires the record to exist, or when the test
+- **`insert_*`** - When a foreign key constraint requires the record to exist, or when the test
   queries the database for it.
 
 ## Extending factories
@@ -239,14 +239,14 @@ test/support/
 The full reference lives in the
 [`FactoryMan` module documentation](https://hexdocs.pm/factory_man/FactoryMan.html), including:
 
-- **Hooks** — transform data at each stage of the build/insert pipeline
-- **Variants** (`defvariant`) — lightweight presets that preprocess params for a base factory
-- **Associations** (`associations:`) — normalize nested params through same- or cross-module factories
-- **Strict params** (`strict: true`) — reject unknown param keys at the factory boundary
-- **Sequences** — counters, formatted values, and cycling lists
-- **Lazy evaluation** — 0- and 1-arity functions as attribute values, resolved at build time
-- **Factory inheritance** (`extends:`) — share repo, hooks, and helper functions
-- **Direct struct factories** (`body: :struct`) — full control over struct construction
-- **Embedded schemas** — build-only factories, detected automatically
-- **[Cookbook](COOKBOOK.md)** — a practical progression from a first factory through realistic
+- **Hooks** - transform data at each stage of the build/insert pipeline
+- **Variants** (`defvariant`) - lightweight presets that preprocess params for a base factory
+- **Associations** (`associations:`) - normalize nested params through same- or cross-module factories
+- **Strict params** (`strict: true`) - reject unknown param keys at the factory boundary
+- **Sequences** - counters, formatted values, and cycling lists
+- **Lazy evaluation** - 0- and 1-arity functions as attribute values, resolved at build time
+- **Factory inheritance** (`extends:`) - share repo, hooks, and helper functions
+- **Direct struct factories** (`body: :struct`) - full control over struct construction
+- **Embedded schemas** - build-only factories, detected automatically
+- **[Cookbook](COOKBOOK.md)** - a practical progression from a first factory through realistic
   defaults, variants, associations, suite organization, hooks, strict params, and advanced presets

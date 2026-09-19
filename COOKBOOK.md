@@ -229,7 +229,7 @@ derived value as well:
 ```elixir
 user = MyApp.Factory.build_user_struct(%{role: "admin"})
 
-assert user.summary =~ "admin since"
+assert user.summary == "admin since #{user.joined_at.year}"
 ```
 
 Lazy defaults also avoid work when a caller supplies an override. This matters most when the
@@ -315,17 +315,16 @@ that already exist in the database.
 
 Two tools cover different jobs:
 
-- **Declarative `associations:`** — for in-memory graphs whose wiring is fixed at definition time.
+- **Declarative `associations:`** - for in-memory graphs whose wiring is fixed at definition time.
   It normalizes caller params *before* the body runs, which is what keeps the canonical
   `Map.merge(base_params, params)` ending safe.
-- **`FactoryMan.assoc/3,4`** — for associations that must be inserted, or whose params depend on
-  another association resolved earlier in the same body. These factories usually declare
-  `body: :struct` and read params selectively; that is a legitimate shape for this kind of work,
-  not a shortcut.
+- **`FactoryMan.assoc/3,4`** - for associations that must be inserted, or whose params depend on
+  another association resolved earlier in the same body. When the associations depend on each
+  other in sequence, a `body: :struct` factory with named locals is the clearest shape. When they
+  do not, a merge-last body works, with the write-back shown below.
 
-The two do not mix inside one params body. Resolving an association imperatively and then ending
-with `Map.merge(base_params, params)` puts the caller's raw params map back over the struct you
-just resolved:
+Resolving an association imperatively and then ending with `Map.merge(base_params, params)` puts
+the caller's raw params map back over the struct you just resolved:
 
 ```elixir
 # Wrong: the merge restores %{author: %{username: "alice"}} over the resolved struct
@@ -336,8 +335,29 @@ deffactory post(params \\ %{}), struct: Post do
 end
 ```
 
-Use declarative associations for that factory, or switch it to `body: :struct` and build the
-struct yourself.
+There are three ways out of that. Declare the association with `associations:`, which normalizes
+the caller's value before the body runs. Or put the resolved value back before merging:
+
+```elixir
+deffactory post(params \\ %{}), struct: Post do
+  author = FactoryMan.assoc(params, :author, &build_user_struct/1)
+
+  base_params = %{title: "A post by #{author.username}", author: author}
+
+  # The resolved struct replaces whatever the caller passed for the same key
+  Map.merge(base_params, Map.put(params, :author, author))
+end
+```
+
+Or, when the association is only an input used to derive other fields and should not be stored on
+the struct at all, drop it instead:
+
+```elixir
+Map.merge(base_params, Map.drop(params, [:author]))
+```
+
+Or switch the factory to `body: :struct` and build the struct yourself. Reach for that when the
+associations must be resolved in sequence, each one feeding the next.
 
 ### Accept nested params and existing structs
 
@@ -494,8 +514,8 @@ deffactory bridge(params \\ %{}), struct: Bridge, body: :struct do
 end
 ```
 
-`FactoryMan.assoc_list/3,4` does the same for a plural association. Both have value forms —
-`FactoryMan.resolve_assoc/2,3` and `FactoryMan.resolve_assoc_list/2,3` — for helper functions that
+`FactoryMan.assoc_list/3,4` does the same for a plural association. Both have value forms,
+`FactoryMan.resolve_assoc/2,3` and `FactoryMan.resolve_assoc_list/2,3`, for helper functions that
 already hold the value instead of a params map:
 
 ```elixir
@@ -521,7 +541,7 @@ They differ only in what an *absent* key means, because only the keyed tools can
 | params map | build | build | build | raise | raise |
 | a struct | reuse | reuse | reuse | raise | raise |
 | list of maps/structs | raise (singular) / resolve each (plural) | raise | raise | resolve each | resolve each |
-| `nil` inside a list | raise | — | — | raise | raise |
+| `nil` inside a list | raise | n/a | n/a | raise | raise |
 
 A factory that wants a record even when the caller passes `nil` says so in its own body, where the
 rule is visible:

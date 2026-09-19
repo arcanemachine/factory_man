@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-09-19
+
+### Added
+
+- `FactoryMan.assoc/3,4` and `FactoryMan.assoc_list/3,4` read an association from a factory's
+  params map by key. An absent key builds the default (`assoc`) or resolves to `[]`
+  (`assoc_list`); `assoc/3,4` accepts `default: nil` for an association that should only exist
+  when the caller supplies one.
+- `FactoryMan.resolve_assoc/2,3` and `FactoryMan.resolve_assoc_list/2,3` resolve a value or list
+  directly, for helpers that hold the value instead of a params map.
+- Struct factories raise when given something other than a params map, instead of failing later
+  inside the factory body.
+
+### Changed
+
+- **Breaking:** An explicit `nil` is preserved by the keyed helpers, the value helpers, and the
+  declarative `:associations` option. The `:on_nil` option is removed; a factory that needs a
+  record for a nil value provides the fallback in its own body.
+- **Breaking:** `assoc_list` raises on a nil collection instead of resolving it to an empty list,
+  matching declarative `:many`. Use `[]` for no associated values.
+- **Breaking:** The value-based `assoc/2,3` and `assoc_list/2,3` from 0.12.0 are renamed to
+  `resolve_assoc` and `resolve_assoc_list`. The `assoc` names now take a params map and a key.
+- **Breaking:** Lazy values are resolved in two passes: the 0-arity functions, then the 1-arity
+  ones. A 1-arity function now receives resolved 0-arity values instead of function references.
+- **Breaking:** `body: :struct` factories lazily evaluate the struct their body returns. Function
+  values in those fields were previously stored as-is.
+- **Breaking:** `:associations` is rejected as a module-level option. Association keys belong to
+  one schema, so cascading them would apply a factory's keys to every struct in the module.
+- Association errors now name the failing key, and the item index for list associations.
+- Documented the association tiers and their nil rules, when to reach for declarative versus
+  imperative resolution, and how to keep an imperatively resolved value through a factory body's
+  final `Map.merge/2`.
+
 ## [0.12.1] - 2026-09-18
 
 ### Changed
