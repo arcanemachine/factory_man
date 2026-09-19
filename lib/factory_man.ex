@@ -898,6 +898,7 @@ defmodule FactoryMan do
             unquote(association_step)
 
             unquote(block)
+            |> FactoryMan.evaluate_lazy_attributes()
             |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
           end
         end
@@ -1368,16 +1369,24 @@ defmodule FactoryMan do
   @doc false
   @spec evaluate_lazy_attributes(any) :: any
   def evaluate_lazy_attributes(%{__struct__: record} = factory) do
-    struct!(record, factory |> Map.from_struct() |> do_evaluate_lazy_attributes(factory))
+    independent = factory |> Map.from_struct() |> resolve_independent_pairs()
+    parent = struct!(record, independent)
+
+    struct!(record, resolve_derived_pairs(independent, parent))
   end
 
   def evaluate_lazy_attributes(attrs) when is_map(attrs) do
-    do_evaluate_lazy_attributes(attrs, attrs)
+    independent = resolve_independent_pairs(attrs)
+    parent = Map.new(independent)
+
+    independent |> resolve_derived_pairs(parent) |> Map.new()
   end
 
   def evaluate_lazy_attributes(attrs) when is_list(attrs) do
     if Keyword.keyword?(attrs) do
-      resolve_lazy_pairs(attrs, attrs)
+      independent = resolve_independent_pairs(attrs)
+
+      resolve_derived_pairs(independent, independent)
     else
       attrs
     end
@@ -1385,15 +1394,19 @@ defmodule FactoryMan do
 
   def evaluate_lazy_attributes(value), do: value
 
-  defp do_evaluate_lazy_attributes(attrs, parent_factory) do
-    resolve_lazy_pairs(attrs, parent_factory) |> Enum.into(%{})
+  # First pass: the values that do not depend on anything else in the factory.
+  defp resolve_independent_pairs(pairs) do
+    Enum.map(pairs, fn
+      {k, v} when is_function(v) and not is_function(v, 1) -> {k, v.()}
+      {_, _} = pair -> pair
+    end)
   end
 
-  defp resolve_lazy_pairs(pairs, parent) do
+  # Second pass: the derived values, which read the results of the first pass.
+  defp resolve_derived_pairs(pairs, parent) do
     Enum.map(pairs, fn
       {k, v} when is_function(v, 1) -> {k, v.(parent)}
-      {k, v} when is_function(v) -> {k, v.()}
-      {_, _} = tuple -> tuple
+      {_, _} = pair -> pair
     end)
   end
 
