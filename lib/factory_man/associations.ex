@@ -131,16 +131,12 @@ defmodule FactoryMan.Associations do
   def normalize_params!(params, [], _owner_module, _owner_factory_name), do: params
 
   def normalize_params!(params, specs, owner_module, owner_factory_name) when is_map(params) do
+    # Every declared target is validated on every build, including for keys the caller omitted:
+    # a mistyped factory reference should fail whether or not a test happens to exercise it.
     resolved_specs =
       Enum.map(specs, fn {key, cardinality, related_schema, target} ->
         resolver =
-          association_resolver!(
-            related_schema,
-            target,
-            owner_module,
-            owner_factory_name,
-            key
-          )
+          association_resolver!(related_schema, target, owner_module, owner_factory_name, key)
 
         {key, cardinality, resolver}
       end)

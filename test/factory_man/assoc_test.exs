@@ -777,6 +777,16 @@ defmodule FactoryMan.AssocTest do
       end
     end
 
+    test "rejects :associations as a module-level option" do
+      assert_raise ArgumentError, ~r/invalid module option :associations/, fn ->
+        Code.compile_string("""
+        defmodule FactoryMan.AssocTest.ModuleLevelAssociations do
+          use FactoryMan, associations: [author: :user]
+        end
+        """)
+      end
+    end
+
     test "empty configuration does not require an Ecto schema" do
       factory = compile_factory!(associations: [])
 

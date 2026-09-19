@@ -126,4 +126,26 @@ defmodule FactoryMan.StrictParamsTest do
       end
     end
   end
+
+  describe "params container" do
+    alias FactoryMan.StrictParamsTest.Factory
+
+    test "a non-map argument raises at the factory boundary" do
+      for params <- [[username: "kw"], "string", 1] do
+        assert_raise ArgumentError, ~r/expected a params map for factory :user/, fn ->
+          Factory.build_user_struct(params)
+        end
+      end
+    end
+
+    test "the check applies to factories with strict disabled" do
+      assert_raise ArgumentError, ~r/expected a params map for factory :lax_user/, fn ->
+        Factory.build_lax_user_struct(role: "admin")
+      end
+    end
+
+    test "non-struct factories still accept any value" do
+      assert Factory.build_greeting(%{hello: "there"}) == %{hello: "there"}
+    end
+  end
 end

@@ -566,6 +566,12 @@ defmodule FactoryMan do
     quote do
       unquote_splicing(parent_imports)
 
+      if Keyword.has_key?(unquote(opts), :associations) do
+        raise ArgumentError,
+              "invalid module option :associations in #{inspect(__MODULE__)}. Association keys " <>
+                "belong to a single schema, so :associations is set per factory, not per module."
+      end
+
       # Only the definition macros are imported — they read as DSL keywords. Helper functions
       # (assoc/3,4, assoc_list/3,4, sequence/1,2,3, ...) are deliberately not imported: they are called with the
       # FactoryMan. prefix so their origin is explicit and generic names cannot collide (e.g.
@@ -778,12 +784,14 @@ defmodule FactoryMan do
       # Extract hooks - used many times throughout
       hooks = Keyword.get(merged_opts, :hooks, [])
 
+      # `:associations` is factory-level only: association keys belong to one schema, so
+      # inheriting them from a module would apply another factory's keys to this struct.
       association_specs =
         FactoryMan.Associations.compile_specs!(
           caller_module,
           factory_name,
           merged_opts[:struct],
-          Keyword.get(merged_opts, :associations, [])
+          Keyword.get(opts, :associations, [])
         )
 
       association_step =
@@ -847,7 +855,7 @@ defmodule FactoryMan do
           # Standard: the body returns a params map that is run through the params-stage hooks
           # and lazy evaluation, then converted with struct!/2.
           def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
-            FactoryMan._validate_strict_params!(
+            FactoryMan._validate_params!(
               unquote(user_var),
               unquote(strict),
               unquote(merged_opts[:struct]),
@@ -871,7 +879,7 @@ defmodule FactoryMan do
         else
           # body: :struct — the body returns the struct directly.
           def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
-            FactoryMan._validate_strict_params!(
+            FactoryMan._validate_params!(
               unquote(user_var),
               unquote(strict),
               unquote(merged_opts[:struct]),
@@ -1387,10 +1395,15 @@ defmodule FactoryMan do
   def get_hook_handler(hooks, hook), do: hooks[hook] || (&FactoryMan.fallback_hook_handler/1)
 
   @doc false
-  def _validate_strict_params!(params, false = _strict, _struct_module, _factory_name),
+  def _validate_params!(params, _strict, _struct_module, factory_name) when not is_map(params) do
+    raise ArgumentError,
+          "expected a params map for factory :#{factory_name}, got: #{inspect(params)}"
+  end
+
+  def _validate_params!(params, false = _strict, _struct_module, _factory_name),
     do: params
 
-  def _validate_strict_params!(params, strict, struct_module, factory_name)
+  def _validate_params!(params, strict, struct_module, factory_name)
       when is_map(params) and is_list(strict) do
     allowed = (Map.keys(struct_module.__struct__()) -- [:__struct__, :__meta__]) ++ strict
     unknown = Map.keys(params) -- allowed
@@ -1405,7 +1418,7 @@ defmodule FactoryMan do
     params
   end
 
-  def _validate_strict_params!(params, _strict, _struct_module, _factory_name), do: params
+  def _validate_params!(params, _strict, _struct_module, _factory_name), do: params
 
   @doc false
   def _merge_opts(parent_opts, child_opts) do

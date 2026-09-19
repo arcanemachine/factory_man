@@ -5,7 +5,7 @@ defmodule FactoryMan.Codegen do
   #
   # Each `*_fns` function returns a quoted block of function definitions. The macros call these
   # from within their `quote bind_quoted:` blocks and materialize the result with
-  # `Module.eval_quoted/2`, so both macros generate identical function families from a single
+  # `Code.eval_quoted/3`, so both macros generate identical function families from a single
   # template.
   #
   # The `projections` map carries the argument AST projections extracted from the factory head:
