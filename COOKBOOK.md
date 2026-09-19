@@ -294,6 +294,32 @@ Ecto relationships are where factory setup can become noisy. Prefer declarative 
 direct Ecto associations, and be explicit about whether the test needs an in-memory graph or rows
 that already exist in the database.
 
+Two tools cover different jobs:
+
+- **Declarative `associations:`** — for in-memory graphs whose wiring is fixed at definition time.
+  It normalizes caller params *before* the body runs, which is what keeps the canonical
+  `Map.merge(base_params, params)` ending safe.
+- **`FactoryMan.assoc/3,4`** — for associations that must be inserted, or whose params depend on
+  another association resolved earlier in the same body. These factories usually declare
+  `body: :struct` and read params selectively; that is a legitimate shape for this kind of work,
+  not a shortcut.
+
+The two do not mix inside one params body. Resolving an association imperatively and then ending
+with `Map.merge(base_params, params)` puts the caller's raw params map back over the struct you
+just resolved:
+
+```elixir
+# Wrong: the merge restores %{author: %{username: "alice"}} over the resolved struct
+deffactory post(params \\ %{}), struct: Post do
+  author = FactoryMan.assoc(params, :author, &build_user_struct/1)
+
+  Map.merge(%{title: "A post", author: author}, params)
+end
+```
+
+Use declarative associations for that factory, or switch it to `body: :struct` and build the
+struct yourself.
+
 ### Accept nested params and existing structs
 
 Suppose account and blog factories live in separate modules:
@@ -383,6 +409,16 @@ Declarative associations build structs in memory. They do not automatically inse
 records. They support direct Ecto associations; embeds and `:through` associations are not
 supported.
 
+Calling `insert_post/1` with a nested struct still persists that struct, because Ecto cascades the
+insert. The nested record is written directly by the repo, so the associated factory's
+`before_insert` and `after_insert` hooks do not run for it. When those hooks matter, insert the
+association first and pass the result:
+
+```elixir
+author = MyApp.Factory.Accounts.insert_user()
+post = MyApp.Factory.Blog.insert_post(%{author: author})
+```
+
 ### Insert a dependency when the database requires it
 
 Sometimes the schema only needs a foreign key and the related row must already exist. Make that
@@ -414,37 +450,66 @@ assert event.user_id == user.id
 Use this pattern when persistence is genuinely required. For ordinary in-memory associations,
 `build_*_struct` keeps tests faster and makes the dependency smaller.
 
-### Use low-level resolvers for custom inputs
+### Resolve associations imperatively
 
-The declarative `associations:` option is the usual choice for direct Ecto relationships. The
-lower-level resolvers are useful for plain structs, custom builder functions, or helper functions
-that accept either an existing struct or params:
+`FactoryMan.assoc/3,4` reads one association from the factory's params and resolves it. Use it when
+the association must be inserted, when its params depend on an association resolved earlier, or when
+the builder is a hand-written helper rather than a plain factory function:
 
 ```elixir
-user =
-  FactoryMan.assoc(
-    user_or_params,
-    &MyApp.Factory.Accounts.build_user_struct/1,
-    struct: MyApp.Accounts.User
-  )
+deffactory bridge(params \\ %{}), struct: Bridge, body: :struct do
+  # An explicit `nil` means a bridge with no supplier property
+  supplier_property =
+    FactoryMan.assoc(params, :supplier_property, &insert_supplier_property/1,
+      struct: SupplierProperty
+    )
 
-tags =
-  FactoryMan.assoc_list(
-    tags_or_params,
-    &MyApp.Factory.Blog.build_tag_struct/1,
-    struct: MyApp.Blog.Tag
-  )
+  # The next association inherits a value derived from the previous one
+  master_property =
+    FactoryMan.assoc(params, :master_property, &insert_master_property/1,
+      struct: MasterProperty,
+      inherit: %{supplier_property_id: supplier_property && supplier_property.id}
+    )
+
+  %Bridge{supplier_property: supplier_property, master_property: master_property}
+end
 ```
 
-`FactoryMan.assoc/3` reuses an existing struct, builds a params map, and builds `nil` with default
-params unless `on_nil: :keep` is supplied. `FactoryMan.assoc_list/3` resolves each item in order,
-accepts a mixture of structs and params maps, and treats an outer `nil` as an empty list.
+`FactoryMan.assoc_list/3,4` does the same for a plural association. Both have value forms —
+`FactoryMan.resolve_assoc/2,3` and `FactoryMan.resolve_assoc_list/2,3` — for helper functions that
+already hold the value instead of a params map:
+
+```elixir
+def insert_post_for(author_or_params) do
+  author = FactoryMan.resolve_assoc(author_or_params, &build_user_struct/1, struct: User)
+
+  insert_post(%{author: author})
+end
+```
 
 Use `inherit: %{...}` to place defaults beneath supplied params. Use `struct:` when you want both
 incoming structs and builder results checked against an expected type.
 
-These helpers receive the association value itself; they do not fetch a key from a containing params
-map. If you already know that a value is a params map, a direct factory call is simpler.
+#### What each input resolves to
+
+All four tools agree on nil: an explicit `nil` from the caller is a decision, and it is preserved.
+They differ only in what an *absent* key means, because only the keyed tools can see that.
+
+| Caller supplies | `associations:` | `assoc/3,4` | `resolve_assoc/2,3` | `assoc_list/3,4` | `resolve_assoc_list/2,3` |
+| --- | --- | --- | --- | --- | --- |
+| key absent | body default | build (or `nil` with `default: nil`) | n/a | `[]` | n/a |
+| `nil` | `nil` | `nil` | `nil` | raise | raise |
+| params map | build | build | build | raise | raise |
+| a struct | reuse | reuse | reuse | raise | raise |
+| list of maps/structs | raise (singular) / resolve each (plural) | raise | raise | resolve each | resolve each |
+| `nil` inside a list | raise | — | — | raise | raise |
+
+A factory that wants a record even when the caller passes `nil` says so in its own body, where the
+rule is visible:
+
+```elixir
+author = FactoryMan.assoc(params, :author, &build_user_struct/1) || build_user_struct()
+```
 
 ## Model non-schema inputs
 
@@ -623,7 +688,7 @@ hook is configured again.
 For a normal struct factory, the build path is:
 
 ```text
-strict validation
+params validation
 → before_build_params
 → association normalization
 → factory body and lazy evaluation
@@ -805,6 +870,8 @@ without guessing from generated function names.
 - **Return params from normal struct factories.** Return a struct only with `body: :struct`.
 - **Qualify helpers.** Call `FactoryMan.sequence`, `FactoryMan.assoc`, and
   `FactoryMan.assoc_list`; `use FactoryMan` imports only the definition macros.
+- **Let an explicit `nil` mean "none".** Every association tool preserves a caller's `nil`. If a
+  factory needs a record regardless, add the fallback in its own body.
 - **Build unless persistence matters.** An in-memory graph is usually enough. Insert when a query,
   constraint, or foreign key requires a row.
 - **Prefer lazy association defaults.** They avoid unnecessary work when callers override a

@@ -185,6 +185,15 @@ defmodule FactoryMan do
   FactoryMan does not automatically build omitted relationships or prevent recursion caused by
   mutually recursive default builders.
 
+  **Imperative resolution** — `assoc/3,4` and `assoc_list/3,4` resolve one association from a
+  params map, for associations that must be inserted or whose params depend on an association
+  resolved earlier in the same body. `resolve_assoc/2,3` and `resolve_assoc_list/2,3` are their
+  value forms, for helpers that already hold the value. An explicit `nil` is preserved by all of
+  them, as it is by `:associations`. These do not write back into the params map, so a factory
+  that uses them reads params selectively (typically with `body: :struct`) rather than ending in
+  `Map.merge(base_params, params)`, which would restore the caller's raw params over the resolved
+  value. See the [Cookbook](cookbook.html) for the full input table.
+
   ## Params Functions
 
   For struct factories, `build_*_params` and `build_*_string_params` build the struct and
@@ -225,12 +234,12 @@ defmodule FactoryMan do
   - `:associations` — Keyword list mapping Ecto association keys to FactoryMan factories. Use an
     atom for a same-module factory or `{FactoryModule, :factory}` across modules. Ecto supplies
     the associated schema and cardinality; caller-provided nested params are normalized before the
-    factory body runs.
+    factory body runs. Factory-level only.
   - `:strict` — Reject unknown param keys at the factory boundary (see Strict Params below)
 
-  Options that only apply to struct factories (`:body`, `:associations`, `:strict`) cascade
-  from the module level. `:body` and `:strict` are ignored by non-struct factories; non-empty
-  `:associations` requires an Ecto-backed struct factory.
+  `:body` and `:strict` cascade from the module level and are ignored by non-struct factories.
+  `:associations` is factory-level only — association keys belong to a single schema — and
+  requires an Ecto-backed struct factory.
 
   ## Strict Params
 
@@ -278,7 +287,7 @@ defmodule FactoryMan do
 
   ```text
   build_user_struct:
-    strict validation → before_build_params → configured association normalization
+    params validation → before_build_params → configured association normalization
     → [factory body + lazy eval] → after_build_params
     → before_build_struct → struct!() → after_build_struct
 

@@ -76,11 +76,16 @@ Key rules:
 - You must merge `params` yourself — FactoryMan does not auto-merge
 - For Ecto factories, use `associations: [field: :factory]` (or
   `field: {FactoryModule, :factory}` across modules) to normalize caller-provided nested params;
-  derive defaults with direct factory calls and keep the final `Map.merge(base_params, params)`
-- Advanced value resolution uses `FactoryMan.assoc/2,3`/`FactoryMan.assoc_list/2,3` with a prebuilt
-  struct or params map; `assoc/2,3` supports `on_nil: :keep` for optional values
-- Declarative associations preserve singular nil, require lists for plural associations, and leave
-  missing keys untouched. Embeds and through associations are not supported.
+  derive defaults with direct factory calls and keep the final `Map.merge(base_params, params)`.
+  This option is factory-level only — it does not cascade from `use FactoryMan`
+- Imperative resolution uses `FactoryMan.assoc/3,4` and `FactoryMan.assoc_list/3,4` (read an
+  association from the params map by key), or `FactoryMan.resolve_assoc/2,3` and
+  `FactoryMan.resolve_assoc_list/2,3` (resolve a value directly). They do not write back into
+  params, so a factory using them reads params selectively instead of ending in
+  `Map.merge(base_params, params)`
+- An explicit `nil` is preserved by every association tool. An absent key builds (`assoc`, unless
+  `default: nil`) or yields `[]` (`assoc_list`). A nil list raises. Embeds and through associations
+  are not supported.
 - Same-module targets must be registered in that module. Use `{Module, :factory}` for factories
   supplied by another module, including ancestor factories.
 - Helper functions are **not** imported by `use FactoryMan` — always call them qualified
@@ -115,7 +120,7 @@ For **embedded schemas**, `insert_*` functions are automatically skipped.
 
 ```
 build_user_struct:
-  strict validation -> before_build_params -> configured association normalization
+  params validation -> before_build_params -> configured association normalization
   -> [factory body + lazy eval] -> after_build_params
   -> before_build_struct -> struct!() -> after_build_struct
 
@@ -128,7 +133,7 @@ insert_user (calls build_user_struct internally):
 
 ### Common Anti-Patterns
 
-- **Don't pass keyword lists as params to struct factories.** Struct factories expect maps: `%{key: value}`, never `[key: value]`
+- **Don't pass keyword lists as params to struct factories.** Struct factories expect maps: `%{key: value}`, never `[key: value]` — a non-map raises at the factory boundary
 - **Don't forget `Map.merge(base_params, params)`** at the end of every struct/map factory body
 - **Don't use `build_user()` for struct factories** — the correct names include the type:
   `build_user_struct()`, `build_user_params()`, `insert_user()`. Non-struct factories use `build_*()` directly.
