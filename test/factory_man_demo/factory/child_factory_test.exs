@@ -184,7 +184,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "an association of the wrong struct type raises" do
       assert_raise ArgumentError,
-                   ~r/expected association :user to be a FactoryManDemo.Users.User/,
+                   ~r/expected association :user in factory :author in .*ChildFactory to be a FactoryManDemo.Users.User struct/,
                    fn ->
                      ChildFactory.build_author_struct(%{user: %Author{}})
                    end

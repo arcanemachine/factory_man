@@ -567,7 +567,7 @@ defmodule FactoryMan do
       unquote_splicing(parent_imports)
 
       # Only the definition macros are imported — they read as DSL keywords. Helper functions
-      # (assoc/3, assoc_list/3, sequence/1,2,3, ...) are deliberately not imported: they are called with the
+      # (assoc/3,4, assoc_list/3,4, sequence/1,2,3, ...) are deliberately not imported: they are called with the
       # FactoryMan. prefix so their origin is explicit and generic names cannot collide (e.g.
       # with Ecto.assoc/2).
       import unquote(__MODULE__),
@@ -1246,14 +1246,22 @@ defmodule FactoryMan do
   defp plain_var({var_name, _, _}) when is_atom(var_name), do: Macro.var(var_name, nil)
 
   @doc """
-  Resolve one association value.
+  Resolve one association from a factory's params.
 
-  A params map is passed to `build_fun`; an existing struct is reused without calling the builder;
-  and `nil` builds with the default `%{}` params, or `:inherit` when supplied. For ordinary Ecto
-  factory associations, prefer the `:associations` factory option.
+  Reads `key` from the `params` map and resolves it:
 
-  This helper is useful when a caller accepts either an already-built struct or params for building
-  one. It does not inspect or modify a containing factory params map.
+  | Caller supplies | Result |
+  | --- | --- |
+  | key absent | builds with `:inherit` as params (or `nil` with `default: nil`) |
+  | `nil` | `nil` |
+  | params map | builds, merged over `:inherit` |
+  | a struct | reused as-is (checked against `:struct`) |
+
+  An explicit `nil` always resolves to `nil`. A factory that needs a value regardless can say so
+  locally: `FactoryMan.assoc(params, :author, &build_author_struct/1) || build_author_struct()`.
+
+  For ordinary Ecto factory associations, prefer the `:associations` factory option. Use
+  `resolve_assoc/2,3` when you already hold the value instead of a params map.
 
   `build_fun` is any 1-arity function that receives params for a new associated value.
 
@@ -1261,27 +1269,25 @@ defmodule FactoryMan do
 
   - `:struct` — validate supplied structs and builder results against this module.
   - `:inherit` — params merged below a supplied params map before building (default: `%{}`).
-  - `:on_nil` — `:build` (default) builds a nil value; `:keep` preserves nil.
+  - `:default` — what an absent key resolves to: `:build` (default) or `nil`.
 
   ## Examples
 
-      FactoryMan.assoc(%{name: "Ann"}, &build_author_struct/1)
-      FactoryMan.assoc(existing_author, &build_author_struct/1, struct: Author)
-      FactoryMan.assoc(nil, &build_author_struct/1, on_nil: :keep)
+      FactoryMan.assoc(params, :author, &build_author_struct/1, struct: Author)
+      FactoryMan.assoc(params, :editor, &build_author_struct/1, default: nil)
+      FactoryMan.assoc(params, :author, &build_author_struct/1, inherit: %{role: "writer"})
   """
-  @spec assoc(any(), (map() -> any()), keyword()) :: any()
-  def assoc(value, build_fun, opts \\ []) do
-    FactoryMan.Associations.resolve(value, build_fun, opts)
+  @spec assoc(map(), atom(), (map() -> any()), keyword()) :: any()
+  def assoc(params, key, build_fun, opts \\ []) do
+    FactoryMan.Associations.resolve_key(params, key, build_fun, opts)
   end
 
   @doc """
-  Resolve a list of association values.
+  Resolve a list association from a factory's params.
 
-  `nil` and `[]` resolve to `[]`. Each list item must be either a params map or an existing
-  struct. Params maps are passed to `build_fun`, while structs are reused without invoking it.
-  Mixed lists are supported and preserve their order. Nil elements inside a list are rejected.
-  Unlike the declarative `:associations` option, this low-level helper treats an outer nil
-  collection as an empty list.
+  Reads `key` from the `params` map. An absent key resolves to `[]`, and an explicit `nil` raises
+  (use `[]` for no associated values). Each list item must be a params map or an existing struct;
+  mixed lists are supported and preserve their order.
 
   ## Options
 
@@ -1290,14 +1296,56 @@ defmodule FactoryMan do
 
   ## Examples
 
-      FactoryMan.assoc_list(
+      FactoryMan.assoc_list(params, :tags, &build_tag_struct/1, struct: Tag)
+  """
+  @spec assoc_list(map(), atom(), (map() -> any()), keyword()) :: list()
+  def assoc_list(params, key, build_fun, opts \\ []) do
+    FactoryMan.Associations.resolve_list_key(params, key, build_fun, opts)
+  end
+
+  @doc """
+  Resolve one association value.
+
+  The value form of `assoc/3,4`, for helpers that already hold a value rather than a params map:
+  a params map is passed to `build_fun`, an existing struct is reused without calling the builder,
+  and `nil` resolves to `nil`.
+
+  ## Options
+
+  - `:struct` — validate supplied structs and builder results against this module.
+  - `:inherit` — params merged below a supplied params map before building (default: `%{}`).
+
+  ## Examples
+
+      FactoryMan.resolve_assoc(%{name: "Ann"}, &build_author_struct/1)
+      FactoryMan.resolve_assoc(author_or_params, &build_author_struct/1, struct: Author)
+  """
+  @spec resolve_assoc(any(), (map() -> any()), keyword()) :: any()
+  def resolve_assoc(value, build_fun, opts \\ []) do
+    FactoryMan.Associations.resolve(value, build_fun, opts)
+  end
+
+  @doc """
+  Resolve a list of association values.
+
+  The value form of `assoc_list/3,4`. Each item must be a params map or an existing struct; `nil`
+  (as the list itself or as an item) raises.
+
+  ## Options
+
+  - `:struct` — validate supplied structs and builder results against this module.
+  - `:inherit` — params merged below each supplied params map before building (default: `%{}`).
+
+  ## Examples
+
+      FactoryMan.resolve_assoc_list(
         [%{body: "a"}, existing_comment],
         &build_comment_struct/1,
         struct: Comment
       )
   """
-  @spec assoc_list(any(), (map() -> any()), keyword()) :: list()
-  def assoc_list(values, build_fun, opts \\ []),
+  @spec resolve_assoc_list(any(), (map() -> any()), keyword()) :: list()
+  def resolve_assoc_list(values, build_fun, opts \\ []),
     do: FactoryMan.Associations.resolve_list(values, build_fun, opts)
 
   @doc false

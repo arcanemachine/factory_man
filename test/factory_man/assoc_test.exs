@@ -238,181 +238,299 @@ defmodule FactoryMan.AssocTest do
     module
   end
 
-  describe "assoc/2,3" do
+  describe "assoc/3,4" do
+    test "an absent key builds the default" do
+      assert FactoryMan.assoc(%{}, :author, &build_author/1) == %Author{name: "Default Author"}
+    end
+
+    test "an absent key builds from inherit params" do
+      assert FactoryMan.assoc(%{}, :author, &build_author/1, inherit: %{name: "Inherited"}) ==
+               %Author{name: "Inherited"}
+    end
+
+    test "an absent key resolves to nil with default: nil" do
+      builder = fn _ -> flunk("builder must not run") end
+
+      assert FactoryMan.assoc(%{}, :author, builder, default: nil) == nil
+    end
+
+    test "an explicit nil resolves to nil" do
+      builder = fn _ -> flunk("builder must not run") end
+
+      assert FactoryMan.assoc(%{author: nil}, :author, builder) == nil
+      assert FactoryMan.assoc(%{author: nil}, :author, builder, default: nil) == nil
+      assert FactoryMan.assoc(%{author: nil}, :author, builder, inherit: %{name: "Ann"}) == nil
+    end
+
     test "a params map builds the association" do
-      assert FactoryMan.assoc(%{name: "Ann"}, &build_author/1) == %Author{name: "Ann"}
-    end
-
-    test "nil builds the default" do
-      assert FactoryMan.assoc(nil, &build_author/1) == %Author{name: "Default Author"}
-    end
-
-    test "nil stays nil with on_nil: :keep" do
-      assert FactoryMan.assoc(nil, &build_author/1, on_nil: :keep) == nil
-    end
-
-    test "a struct is reused as-is" do
-      author = %Author{name: "Ann"}
-
-      assert FactoryMan.assoc(author, &build_author/1, struct: Author) == author
-    end
-
-    test "a struct is reused without a type option" do
-      comment = %Comment{body: "A comment"}
-
-      assert FactoryMan.assoc(comment, &build_author/1) == comment
-    end
-
-    test "a struct does not invoke the builder" do
-      existing = %Author{name: "Existing"}
-
-      builder = fn _params ->
-        send(self(), :builder_called)
-        existing
-      end
-
-      assert FactoryMan.assoc(existing, builder, struct: Author) == existing
-      refute_received :builder_called
+      assert FactoryMan.assoc(%{author: %{name: "Ann"}}, :author, &build_author/1) ==
+               %Author{name: "Ann"}
     end
 
     test "inherit params are merged below caller params" do
       author =
-        FactoryMan.assoc(%{name: "Ann"}, &build_author/1,
+        FactoryMan.assoc(%{author: %{name: "Ann"}}, :author, &build_author/1,
           inherit: %{name: "Inherited", email: "a@b.c"}
         )
 
       assert author == %Author{name: "Ann", email: "a@b.c"}
     end
 
-    test "a wrong struct type raises" do
-      assert_raise ArgumentError, ~r/expected .*FactoryMan.AssocTest.Author struct/, fn ->
-        FactoryMan.assoc(%Comment{}, &build_author/1, struct: Author)
-      end
+    test "a struct is reused without invoking the builder" do
+      existing = %Author{name: "Existing"}
+      builder = fn _ -> flunk("builder must not run") end
+
+      assert FactoryMan.assoc(%{author: existing}, :author, builder, struct: Author) === existing
     end
 
-    test "a builder result of the wrong type raises" do
-      assert_raise ArgumentError, ~r/expected .*FactoryMan.AssocTest.Author struct/, fn ->
-        FactoryMan.assoc(%{}, fn _params -> %Comment{} end, struct: Author)
-      end
+    test "a wrong struct type raises, naming the key" do
+      assert_raise ArgumentError,
+                   ~r/expected association :author to be a .*Author struct/,
+                   fn ->
+                     FactoryMan.assoc(%{author: %Comment{}}, :author, &build_author/1,
+                       struct: Author
+                     )
+                   end
     end
 
-    test "a non-map, non-struct value raises" do
-      assert_raise ArgumentError, ~r/expected an association to be a struct/, fn ->
-        FactoryMan.assoc("Ann", &build_author/1)
-      end
+    test "a builder result of the wrong type raises, naming the key" do
+      assert_raise ArgumentError,
+                   ~r/expected association :author to be a .*Author struct/,
+                   fn ->
+                     FactoryMan.assoc(%{author: %{}}, :author, fn _ -> %Comment{} end,
+                       struct: Author
+                     )
+                   end
     end
 
-    test "invalid builder, options, and values raise" do
+    test "a non-map, non-struct, non-nil value raises, naming the key" do
+      assert_raise ArgumentError,
+                   ~r/expected association :author to be a struct, a params map, or nil/,
+                   fn -> FactoryMan.assoc(%{author: "Ann"}, :author, &build_author/1) end
+    end
+
+    test "invalid params, keys, builders, and options raise" do
+      assert_raise ArgumentError, ~r/expected a params map to read association :author/, fn ->
+        FactoryMan.assoc([author: %{}], :author, &build_author/1)
+      end
+
+      assert_raise ArgumentError, ~r/expected a params map to read association :author/, fn ->
+        FactoryMan.assoc(%Author{}, :author, &build_author/1)
+      end
+
+      assert_raise ArgumentError, ~r/expected an association key atom/, fn ->
+        FactoryMan.assoc(%{}, "author", &build_author/1)
+      end
+
       assert_raise ArgumentError, ~r/1-arity function/, fn ->
-        FactoryMan.assoc(%{}, :not_a_builder)
+        FactoryMan.assoc(%{}, :author, :not_a_builder)
       end
 
-      assert_raise ArgumentError, ~r/invalid association options/, fn ->
-        FactoryMan.assoc(%{}, &build_author/1, on_missing: nil)
+      assert_raise ArgumentError, ~r/invalid :default option/, fn ->
+        FactoryMan.assoc(%{}, :author, &build_author/1, default: :keep)
       end
 
-      assert_raise ArgumentError, ~r/invalid :on_nil option/, fn ->
-        FactoryMan.assoc(%{}, &build_author/1, on_nil: :ignore)
+      assert_raise ArgumentError, ~r/invalid association options \[:on_nil\]/, fn ->
+        FactoryMan.assoc(%{}, :author, &build_author/1, on_nil: :keep)
       end
 
-      assert_raise ArgumentError, ~r/:inherit option/, fn ->
-        FactoryMan.assoc(%{}, &build_author/1, inherit: [])
-      end
-
-      assert_raise ArgumentError, ~r/struct module/, fn ->
-        FactoryMan.assoc(%{}, &build_author/1, struct: String)
-      end
-
-      assert_raise ArgumentError, ~r/:inherit option/, fn ->
-        FactoryMan.assoc(%{}, &build_author/1, inherit: %Author{})
+      assert_raise ArgumentError, ~r/invalid association options \[:on_missing\]/, fn ->
+        FactoryMan.assoc(%{}, :author, &build_author/1, on_missing: nil)
       end
     end
   end
 
-  describe "assoc_list/2,3" do
-    test "nil and an empty list resolve to an empty list" do
-      assert FactoryMan.assoc_list(nil, &build_author/1) == []
-      assert FactoryMan.assoc_list([], &build_author/1) == []
-    end
-
-    test "each map and struct is resolved independently" do
+  describe "resolve_assoc/2,3" do
+    test "resolves values without a containing params map" do
       existing = %Author{name: "Existing"}
 
-      assert [%Author{name: "Built"}, ^existing] =
-               FactoryMan.assoc_list([%{name: "Built"}, existing], &build_author/1,
-                 struct: Author
-               )
+      assert FactoryMan.resolve_assoc(%{name: "Ann"}, &build_author/1) == %Author{name: "Ann"}
+      assert FactoryMan.resolve_assoc(existing, &build_author/1, struct: Author) === existing
+    end
+
+    test "nil resolves to nil" do
+      builder = fn _ -> flunk("builder must not run") end
+
+      assert FactoryMan.resolve_assoc(nil, builder) == nil
+    end
+
+    test "a struct of any type is reused without a struct option" do
+      comment = %Comment{body: "A comment"}
+
+      assert FactoryMan.resolve_assoc(comment, &build_author/1) === comment
+    end
+
+    test "inherit params are merged below caller params" do
+      assert FactoryMan.resolve_assoc(%{name: "Ann"}, &build_author/1,
+               inherit: %{name: "Inherited", email: "a@b.c"}
+             ) == %Author{name: "Ann", email: "a@b.c"}
+    end
+
+    test "wrong types and invalid values raise" do
+      assert_raise ArgumentError, ~r/expected an association to be a .*Author struct/, fn ->
+        FactoryMan.resolve_assoc(%Comment{}, &build_author/1, struct: Author)
+      end
+
+      assert_raise ArgumentError, ~r/expected an association to be a .*Author struct/, fn ->
+        FactoryMan.resolve_assoc(%{}, fn _ -> %Comment{} end, struct: Author)
+      end
+
+      assert_raise ArgumentError,
+                   ~r/expected an association to be a struct, a params map, or nil/,
+                   fn -> FactoryMan.resolve_assoc("Ann", &build_author/1) end
+    end
+
+    test "the keyed-only :default option is rejected" do
+      assert_raise ArgumentError, ~r/invalid association options \[:default\]/, fn ->
+        FactoryMan.resolve_assoc(%{}, &build_author/1, default: nil)
+      end
+    end
+
+    test "invalid option values raise" do
+      assert_raise ArgumentError, ~r/:inherit option/, fn ->
+        FactoryMan.resolve_assoc(%{}, &build_author/1, inherit: [])
+      end
+
+      assert_raise ArgumentError, ~r/:inherit option/, fn ->
+        FactoryMan.resolve_assoc(%{}, &build_author/1, inherit: %Author{})
+      end
+
+      assert_raise ArgumentError, ~r/struct module/, fn ->
+        FactoryMan.resolve_assoc(%{}, &build_author/1, struct: String)
+      end
+    end
+  end
+
+  describe "assoc_list/3,4" do
+    test "an absent key resolves to an empty list" do
+      builder = fn _ -> flunk("builder must not run") end
+
+      assert FactoryMan.assoc_list(%{}, :authors, builder) == []
+    end
+
+    test "an explicit nil raises" do
+      assert_raise ArgumentError, ~r/expected association :authors to be a list; got nil/, fn ->
+        FactoryMan.assoc_list(%{authors: nil}, :authors, &build_author/1)
+      end
+    end
+
+    test "an empty list resolves to an empty list" do
+      builder = fn _ -> flunk("builder must not run") end
+
+      assert FactoryMan.assoc_list(%{authors: []}, :authors, builder) == []
+    end
+
+    test "each map and struct is resolved independently, in order" do
+      existing = %Author{name: "Existing"}
+
+      params = %{authors: [%{name: "Built"}, existing]}
+      authors = FactoryMan.assoc_list(params, :authors, &build_author/1, struct: Author)
+
+      assert [%Author{name: "Built"}, ^existing] = authors
     end
 
     test "inherit applies to each built element" do
       authors =
-        FactoryMan.assoc_list([%{}, %{email: "b@b.c"}], &build_author/1,
+        FactoryMan.assoc_list(%{authors: [%{}, %{email: "b@b.c"}]}, :authors, &build_author/1,
           inherit: %{email: "a@b.c"}
         )
 
       assert Enum.map(authors, & &1.email) == ["a@b.c", "b@b.c"]
     end
 
-    test "a wrong struct type raises" do
-      assert_raise ArgumentError, ~r/expected .*FactoryMan.AssocTest.Author struct/, fn ->
-        FactoryMan.assoc_list([%Comment{}], &build_author/1, struct: Author)
+    test "invalid items and shapes raise, naming the key and index" do
+      assert_raise ArgumentError,
+                   ~r/expected association :authors\[0\] to be a .*Author struct/,
+                   fn ->
+                     FactoryMan.assoc_list(%{authors: [%Comment{}]}, :authors, &build_author/1,
+                       struct: Author
+                     )
+                   end
+
+      assert_raise ArgumentError,
+                   ~r/expected association :authors\[1\] to be a struct or a params map, got: nil/,
+                   fn ->
+                     FactoryMan.assoc_list(%{authors: [%{}, nil]}, :authors, &build_author/1)
+                   end
+
+      assert_raise ArgumentError,
+                   ~r/expected association :authors to be a list of structs and\/or params maps/,
+                   fn ->
+                     FactoryMan.assoc_list(%{authors: %Author{}}, :authors, &build_author/1)
+                   end
+    end
+
+    test ":default is not accepted" do
+      assert_raise ArgumentError, ~r/invalid association options \[:default\]/, fn ->
+        FactoryMan.assoc_list(%{}, :authors, &build_author/1, default: nil)
+      end
+    end
+  end
+
+  describe "resolve_assoc_list/2,3" do
+    test "resolves a list without a containing params map" do
+      existing = %Author{name: "Existing"}
+
+      assert [%Author{name: "Built"}, ^existing] =
+               FactoryMan.resolve_assoc_list([%{name: "Built"}, existing], &build_author/1,
+                 struct: Author
+               )
+
+      assert FactoryMan.resolve_assoc_list([], &build_author/1) == []
+    end
+
+    test "nil raises" do
+      assert_raise ArgumentError, ~r/expected an association to be a list; got nil/, fn ->
+        FactoryMan.resolve_assoc_list(nil, &build_author/1)
       end
     end
 
-    test "nil list elements raise" do
-      assert_raise ArgumentError, ~r/list item 0/, fn ->
-        FactoryMan.assoc_list([nil], &build_author/1)
+    test "invalid items raise, naming the index" do
+      assert_raise ArgumentError, ~r/association list item 0/, fn ->
+        FactoryMan.resolve_assoc_list([nil], &build_author/1)
+      end
+
+      assert_raise ArgumentError, ~r/association list item 0 to be a .*Author struct/, fn ->
+        FactoryMan.resolve_assoc_list([%{}], fn _ -> %Comment{} end, struct: Author)
       end
     end
 
     test "a non-list value raises" do
-      assert_raise ArgumentError, ~r/expected an association list/, fn ->
-        FactoryMan.assoc_list(%Author{}, &build_author/1)
-      end
-    end
-
-    test "on_nil is not accepted" do
-      assert_raise ArgumentError, ~r/invalid association options/, fn ->
-        FactoryMan.assoc_list([], &build_author/1, on_nil: :keep)
+      assert_raise ArgumentError, ~r/expected an association to be a list of structs/, fn ->
+        FactoryMan.resolve_assoc_list(%Author{}, &build_author/1)
       end
     end
   end
 
   describe "resolver execution guarantees" do
-    test "nil keep and empty collections do not invoke the builder" do
-      builder = fn _ -> flunk("builder must not run") end
-
-      assert FactoryMan.assoc(nil, builder, on_nil: :keep) == nil
-      assert FactoryMan.assoc_list(nil, builder) == []
-      assert FactoryMan.assoc_list([], builder) == []
-    end
-
     test "builder exceptions propagate unchanged" do
       builder = fn _ -> raise RuntimeError, "builder failed" end
 
       assert_raise RuntimeError, "builder failed", fn ->
-        FactoryMan.assoc(%{}, builder)
+        FactoryMan.assoc(%{author: %{}}, :author, builder)
       end
 
       assert_raise RuntimeError, "builder failed", fn ->
-        FactoryMan.assoc_list([%{}], builder)
+        FactoryMan.assoc_list(%{authors: [%{}]}, :authors, builder)
       end
     end
 
-    test "list builder results are checked against the requested struct" do
-      assert_raise ArgumentError, ~r/Author struct/, fn ->
-        FactoryMan.assoc_list([%{}], fn _ -> %Comment{} end, struct: Author)
-      end
-    end
-
-    test "both helpers reject malformed option containers" do
+    test "all four helpers reject malformed option containers" do
       for opts <- [%{}, [:struct], [{"struct", Author}]] do
         assert_raise ArgumentError, ~r/keyword list/, fn ->
-          FactoryMan.assoc(%{}, &build_author/1, opts)
+          FactoryMan.assoc(%{}, :author, &build_author/1, opts)
         end
 
         assert_raise ArgumentError, ~r/keyword list/, fn ->
-          FactoryMan.assoc_list([], &build_author/1, opts)
+          FactoryMan.assoc_list(%{}, :authors, &build_author/1, opts)
+        end
+
+        assert_raise ArgumentError, ~r/keyword list/, fn ->
+          FactoryMan.resolve_assoc(%{}, &build_author/1, opts)
+        end
+
+        assert_raise ArgumentError, ~r/keyword list/, fn ->
+          FactoryMan.resolve_assoc_list([], &build_author/1, opts)
         end
       end
     end
@@ -783,8 +901,8 @@ defmodule FactoryMan.AssocTest do
 
           deffactory post(params \\\\ %{}) do
             %{
-              author: FactoryMan.assoc(params[:author], fn p -> Map.put_new(p, :name, "Ann") end),
-              tags: FactoryMan.assoc_list(params[:tags], fn p -> p end)
+              author: FactoryMan.assoc(params, :author, fn p -> Map.put_new(p, :name, "Ann") end),
+              tags: FactoryMan.assoc_list(params, :tags, fn p -> p end)
             }
           end
         end
@@ -801,7 +919,7 @@ defmodule FactoryMan.AssocTest do
             use FactoryMan
 
             deffactory post(params \\\\ %{}) do
-              %{author: assoc(%{}, fn p -> p end)}
+              %{author: assoc(params, :author, fn p -> p end)}
             end
           end
           """)
