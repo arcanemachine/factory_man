@@ -67,6 +67,24 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert user1.id != user2.id
     end
 
+    test "takes variants: and repo options in one list" do
+      user = ChildFactory.insert_user(%{first_name: "Ann"}, variants: [:senior], returning: true)
+
+      assert is_integer(user.id)
+      assert String.starts_with?(user.username, "admin-")
+      assert user.first_name == "Ann"
+    end
+
+    test "list functions take variants: too" do
+      users = ChildFactory.insert_user_list(2, variants: [:admin])
+
+      assert length(users) == 2
+      assert Enum.all?(users, &String.starts_with?(&1.username, "admin-"))
+
+      [user] = ChildFactory.insert_user_list(1, %{first_name: "Bo"}, variants: [:admin])
+      assert user.first_name == "Bo"
+    end
+
     test "module-level after_insert hook inherited via extends runs on insert" do
       author = ChildFactory.insert_author()
 
@@ -116,6 +134,40 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
         |> ChildFactory.insert_admin_user_struct()
 
       assert is_integer(user.id)
+    end
+
+    test "raises on a struct that has already been inserted" do
+      user = ChildFactory.insert_user()
+
+      error = assert_raise ArgumentError, fn -> ChildFactory.insert_user_struct(user) end
+
+      assert error.message =~ "Ecto metadata state is :loaded"
+      assert error.message =~ "Ecto.put_meta(struct, state: :built)"
+
+      assert_raise ArgumentError, ~r/insert_admin_user_struct\/2 expects a struct/, fn ->
+        ChildFactory.insert_admin_user_struct(user)
+      end
+    end
+
+    test "raises on a deleted struct" do
+      deleted = Repo.delete!(ChildFactory.insert_user())
+
+      assert_raise ArgumentError, ~r/state is :deleted/, fn ->
+        ChildFactory.insert_user_struct(deleted)
+      end
+    end
+
+    test "inserts a struct marked as built again" do
+      user = ChildFactory.insert_user()
+      copy = Ecto.put_meta(%{user | id: nil, username: "copy-#{user.id}"}, state: :built)
+
+      assert ChildFactory.insert_user_struct(copy).id != user.id
+    end
+
+    test "rejects variants:, since the struct has already been built" do
+      assert_raise ArgumentError, ~r/does not take variants:. Use insert_user\/2/, fn ->
+        ChildFactory.insert_user_struct(ChildFactory.build_user_struct(), variants: [:admin])
+      end
     end
 
     test "not generated for insert?: false or embedded-schema factories" do
@@ -620,13 +672,13 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       refute function_exported?(ChildFactory, :build_moderator_user_struct, 0)
     end
 
-    test "a variant can be based on another variant" do
-      user = ChildFactory.build_senior_admin_user_struct()
+    test "a variant can extend another variant" do
+      user = ChildFactory.build_senior_user_struct()
       assert %User{} = user
       assert user.first_name == "Senior"
       assert String.starts_with?(user.username, "admin-")
 
-      inserted = ChildFactory.insert_senior_admin_user()
+      inserted = ChildFactory.insert_senior_user()
       assert inserted.id != nil
       assert inserted.first_name == "Senior"
     end

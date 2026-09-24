@@ -33,11 +33,13 @@ defmodule FactoryMan.Codegen do
 
   @doc """
   The params pipeline of a struct factory with `body: :params`: lazy evaluation of the body's
-  result, the params-stage hooks, `struct!/2`, then the `after_build_struct` hooks.
+  result, the strict check that the body kept its params, the params-stage hooks, `struct!/2`,
+  then the `after_build_struct` hooks.
   """
-  def build_struct_pipeline(block, hooks, struct_module) do
+  def build_struct_pipeline(block, hooks, struct_module, params_check) do
     params =
       quote(do: FactoryMan.evaluate_lazy_attributes(unquote(block)))
+      |> check_params_used(params_check, struct_module)
       |> hook_pipe(hooks, :after_build_params)
       |> hook_pipe(hooks, :before_build_struct)
 
@@ -46,6 +48,73 @@ defmodule FactoryMan.Codegen do
       hooks,
       :after_build_struct
     )
+  end
+
+  @doc """
+  Binds the params that enter a strict factory's body, for `check_params_used/3`. `nil` (no
+  code) when the factory is not strict.
+  """
+  def bind_entering_params(nil = _params_check, _user_var), do: nil
+
+  def bind_entering_params({entering_var, _allow, _factory_name}, user_var) do
+    quote do: unquote(entering_var) = unquote(user_var)
+  end
+
+  @doc """
+  Wraps `result_ast` (the body's result, lazily evaluated) in the strict check that the body kept
+  the params it received. Returns `result_ast` unchanged when the factory is not strict.
+  """
+  def check_params_used(result_ast, nil = _params_check, _struct_module), do: result_ast
+
+  def check_params_used(result_ast, {entering_var, allow, factory_name}, struct_module) do
+    quote do
+      FactoryMan._check_params_used!(
+        unquote(result_ast),
+        unquote(entering_var),
+        unquote(allow),
+        unquote(struct_module),
+        __MODULE__,
+        unquote(factory_name)
+      )
+    end
+  end
+
+  @doc """
+  The `(params, opts)` form of a builder, which accepts the `variants:` option. `name` is the
+  factory or variant the builder belongs to, `own_variants` is `[]` for a factory and the
+  variant's own name for a variant, and `base_build_fn` is the base factory's 1-arity builder.
+  """
+  def variants_fn(build_fn, name, factory_name, own_variants, base_build_fn) do
+    quote do
+      @doc "Like `#{unquote(build_fn)}/1`, with options. `variants:` applies the factory's variants."
+      def unquote(build_fn)(params, opts) when is_list(opts) do
+        FactoryMan._build_with_variants(
+          __MODULE__,
+          unquote(name),
+          unquote(factory_name),
+          unquote(own_variants) ++ FactoryMan._variants_opt!(opts, unquote("#{build_fn}/2")),
+          params,
+          &__factory_man_variant_chain__/2,
+          &(unquote(Macro.var(base_build_fn, nil)) / 1)
+        )
+      end
+    end
+  end
+
+  @doc """
+  The doc of the generated `insert_*` functions, which take one option list shared by
+  FactoryMan and the repo.
+  """
+  def insert_doc do
+    """
+    Builds the corresponding struct and inserts it into the database.
+
+    `opts` is one keyword list: FactoryMan uses `:variants`, and every other option is passed to
+    the repo's `insert!/2` unchanged.
+
+        insert_user(%{username: "alice"}, variants: [:admin], returning: true)
+        #                                 └─ FactoryMan ───┘  └─ Repo.insert!/2 ┘
+    """
   end
 
   @doc """
@@ -95,6 +164,13 @@ defmodule FactoryMan.Codegen do
           Stream.repeatedly(fn -> unquote(build_fn)(params) end)
           |> Enum.take(count)
         end
+
+        @doc unquote(doc)
+        def unquote(build_list_fn)(count, params, opts)
+            when is_integer(count) and count >= 0 and is_list(opts) do
+          Stream.repeatedly(fn -> unquote(build_fn)(params, opts) end)
+          |> Enum.take(count)
+        end
       end
 
     block([convenience, implementation])
@@ -126,6 +202,13 @@ defmodule FactoryMan.Codegen do
         def unquote(build_list_fn)(count, params)
             when is_integer(count) and count >= 0 and is_map(params) do
           Stream.repeatedly(fn -> unquote(build_fn)(params) end)
+          |> Enum.take(count)
+        end
+
+        @doc unquote(doc)
+        def unquote(build_list_fn)(count, params, opts)
+            when is_integer(count) and count >= 0 and is_map(params) and is_list(opts) do
+          Stream.repeatedly(fn -> unquote(build_fn)(params, opts) end)
           |> Enum.take(count)
         end
       end
@@ -185,9 +268,27 @@ defmodule FactoryMan.Codegen do
         end
       end
 
+    with_opts =
+      quote do
+        @doc unquote(params_doc)
+        def unquote(params_fn)(params, opts) when is_list(opts) do
+          params
+          |> unquote(build_struct_fn)(opts)
+          |> unquote(strip_mod).unquote(strip_fun)()
+        end
+
+        @doc unquote(string_params_doc)
+        def unquote(string_params_fn)(params, opts) when is_list(opts) do
+          params
+          |> unquote(params_fn)(opts)
+          |> FactoryMan.Params.stringify_keys()
+        end
+      end
+
     block([
       zero_arity,
       one_arity,
+      with_opts,
       map_list_fns(params_fn, :"#{params_fn}_list", projections),
       map_list_fns(string_params_fn, :"#{string_params_fn}_list", projections)
     ])
@@ -230,7 +331,9 @@ defmodule FactoryMan.Codegen do
   `insert_*_list` functions. Each item delegates to `insert_<name>/2`.
   """
   def insert_list_fns(insert_fn, insert_list_fn, projections) do
-    doc = "Inserts `count` records, each built and inserted independently by `#{insert_fn}/2`."
+    doc =
+      "Inserts `count` records, each built and inserted independently by `#{insert_fn}/2`, " <>
+        "which takes the same options."
 
     conveniences =
       if not projections.has_pattern_match do
@@ -287,6 +390,13 @@ defmodule FactoryMan.Codegen do
       @doc unquote(insert_struct_doc(struct_module, factory_name))
       def unquote(insert_struct_fn)(%unquote(struct_module){} = struct, repo_insert_opts \\ [])
           when is_list(repo_insert_opts) do
+        FactoryMan._ensure_insertable!(
+          struct,
+          repo_insert_opts,
+          unquote(insert_struct_fn),
+          unquote(:"insert_#{factory_name}")
+        )
+
         unquote(
           hook_pipe(
             quote(
@@ -314,10 +424,19 @@ defmodule FactoryMan.Codegen do
         base_insert_struct_fn,
         base_factory_name
       ) do
+    insert_fn = String.to_atom(String.replace_suffix("#{insert_struct_fn}", "_struct", ""))
+
     quote do
       @doc unquote(insert_struct_doc(struct_module, base_factory_name))
       def unquote(insert_struct_fn)(%unquote(struct_module){} = struct, repo_insert_opts \\ [])
           when is_list(repo_insert_opts) do
+        FactoryMan._ensure_insertable!(
+          struct,
+          repo_insert_opts,
+          unquote(insert_struct_fn),
+          unquote(insert_fn)
+        )
+
         unquote(base_insert_struct_fn)(struct, repo_insert_opts)
       end
     end

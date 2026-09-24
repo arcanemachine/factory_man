@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - Unreleased
+
+### Added
+
+- The `variants:` option combines variants when building: `build_user_struct(params, variants:
+  [:admin, :confirmed])`. Every generated function of a factory accepts it, including a variant's
+  own functions (the variant counts as the first in the list). The caller's params win, then later
+  variants win over earlier ones, for variants that merge params last.
+- `defvariant` accepts `extends:`, a list of variants of the same factory that the variant builds
+  on: `defvariant senior(params \\ %{}), for: :user, extends: [:admin]`. A variant wins over the
+  variants it extends. A variant that only extends others names a combination.
+- `__factory_man__(:variants, factory_name)` lists a factory's variants, as `variants:` accepts
+  them.
+- A hook can be a list of remote captures, run in order: `after_insert: [&M.a/1, &M.b/1]`. A
+  placement applies to the whole list: `{[&M.a/1, &M.b/1], :before_parent}`.
+  `{[], :replace_parent}` switches off the inherited hooks for a hook name.
+- `usage-rules.md`, the rules for writing factories, shipped in the package for
+  [`usage_rules`](https://hex.pm/packages/usage_rules), and a cheat sheet in the documentation.
+
+### Changed
+
+- **Breaking:** `strict: true` also checks that the factory body keeps the params it receives. A
+  field given to the body must come out of it with the same value, so a body that forgets
+  `Map.merge(base_params, params)`, or a `body: :struct` body that never reads a key, raises.
+  A plain map has been kept when each of its keys has been kept. Function values and association
+  keys are not checked. Keys in `strict: [allow: [...]]` are exempt from both strict checks.
+- **Breaking:** `for:` on `defvariant` must name a factory. A variant builds on another variant
+  with `extends:` instead, so a variant of a variant is renamed: `defvariant senior(...), for:
+  :admin_user` becomes `defvariant senior(...), for: :user, extends: [:admin]`, and
+  `build_senior_admin_user_struct` becomes `build_senior_user_struct`.
+- **Breaking:** `insert_*_struct` raises on a struct that has already been inserted (or has been
+  deleted). The error names `Ecto.put_meta(struct, state: :built)` for an intended copy.
+- **Breaking:** `:variants` is reserved in the options of `insert_*` and `insert_*_list`: it is
+  used by FactoryMan, and every other option is passed to the repo. `insert_*_struct` rejects it.
+- **Breaking:** A variant that declares `assocs:` no longer runs its strict base factory's
+  unknown-key check before the variant body. The base factory checks the params after every
+  variant body, so a variant can use up an input key that is not a field (and a key a variant
+  drops is no longer checked).
+- Error messages name the fix in more places, e.g. a keyword list given to a struct factory, an
+  unknown variant, or a variant defined apart from its base factory.
+
 ## [0.15.0] - 2026-09-24
 
 ### Added

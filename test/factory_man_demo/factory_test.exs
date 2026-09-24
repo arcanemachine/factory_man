@@ -37,7 +37,7 @@ defmodule FactoryManDemo.FactoryTest do
     assert :mod in factories
     refute :moderator_user in factories
     # A variant of a variant is registered too
-    assert :senior_admin_user in factories
+    assert :senior_user in factories
 
     # Definition order: :user is defined before its variants
     assert Enum.find_index(factories, &(&1 == :user)) <

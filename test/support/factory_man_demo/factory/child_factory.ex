@@ -87,7 +87,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
   # ── Variants ────────────────────────────────────────────────────
 
   defvariant admin(params \\ %{}), for: :user do
-    Map.merge(params, %{username: "admin-#{System.os_time()}"})
+    Map.merge(%{username: "admin-#{System.os_time()}"}, params)
   end
 
   defvariant guest(params \\ %{}), for: :user do
@@ -95,11 +95,11 @@ defmodule FactoryManDemo.Factory.ChildFactory do
   end
 
   defvariant moderator(params \\ %{}), for: :user, as: :mod do
-    Map.merge(params, %{username: "mod-#{System.os_time()}"})
+    Map.merge(%{username: "mod-#{System.os_time()}"}, params)
   end
 
-  # Variant of a variant
-  defvariant senior(params \\ %{}), for: :admin_user do
+  # A variant that builds on another variant
+  defvariant senior(params \\ %{}), for: :user, extends: [:admin] do
     Map.merge(%{first_name: "Senior"}, params)
   end
 

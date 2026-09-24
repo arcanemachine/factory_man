@@ -25,20 +25,30 @@ defmodule FactoryMan do
   map, the following functions are available. Insert functions require a configured repo, a table-backed
   Ecto schema, and `insert?` not set to `false`.
 
-  | Function                            | Returns          | Purpose                              |
-  | ----------------------------------- | ---------------- | ------------------------------------ |
-  | `build_user_struct/0,1`             | `%User{}`        | Struct in memory (not persisted)     |
-  | `build_user_params/0,1`             | `%{}`            | Clean params map derived from struct |
-  | `build_user_string_params/0,1`      | `%{"" => ...}`   | Same, with string keys               |
-  | `insert_user/0,1,2`                 | `%User{}`        | Inserted into database               |
-  | `build_user_struct_list/1,2`        | `[%User{}, ...]` | List of structs                      |
-  | `build_user_params_list/1,2`        | `[%{}, ...]`     | List of params maps                  |
-  | `build_user_string_params_list/1,2` | `[%{}, ...]`     | List of string-keyed params maps     |
-  | `insert_user_list/1,2,3`            | `[%User{}, ...]` | List of inserted records             |
-  | `insert_user_struct/1,2`            | `%User{}`        | Inserts an already-built struct      |
+  | Function                              | Returns          | Purpose                              |
+  | ------------------------------------- | ---------------- | ------------------------------------ |
+  | `build_user_struct/0,1,2`             | `%User{}`        | Struct in memory (not persisted)     |
+  | `build_user_params/0,1,2`             | `%{}`            | Clean params map derived from struct |
+  | `build_user_string_params/0,1,2`      | `%{"" => ...}`   | Same, with string keys               |
+  | `insert_user/0,1,2`                   | `%User{}`        | Inserted into database               |
+  | `build_user_struct_list/1,2,3`        | `[%User{}, ...]` | List of structs                      |
+  | `build_user_params_list/1,2,3`        | `[%{}, ...]`     | List of params maps                  |
+  | `build_user_string_params_list/1,2,3` | `[%{}, ...]`     | List of string-keyed params maps     |
+  | `insert_user_list/1,2,3`              | `[%User{}, ...]` | List of inserted records             |
+  | `insert_user_struct/1,2`              | `%User{}`        | Inserts an already-built struct      |
 
   Builders and `insert_user` accept factory params. `insert_user_struct` takes an existing `%User{}`
-  instead. Insert functions also accept repo options. Each list item is built independently.
+  instead. Each list item is built independently.
+
+  Every builder also takes options after its params (`build_user_struct/2`,
+  `build_user_struct_list/3`, and so on). The only builder option is `variants:` (see Variant
+  Factories). Insert functions take one keyword list: FactoryMan uses `:variants`, and every other
+  option is passed to the repo's `insert!/2` unchanged:
+
+  ```elixir
+  insert_user(%{username: "alice"}, variants: [:admin], returning: true, prefix: "tenant_a")
+  #                                 └─ FactoryMan ───┘  └─ Ecto (Repo.insert!/2) ───────┘
+  ```
 
   Zero-arity builders and inserts require a default argument in the factory head. For struct
   factories, count-only list functions pass `%{}` and are omitted when the head pattern-matches its
@@ -243,7 +253,11 @@ defmodule FactoryMan do
   - `:repo` - Overrides the module-level repo for this factory
   - `:assocs` - Keyword list mapping Ecto association keys to builders (see Associations above).
     Factory-level only.
-  - `:strict` - Reject unknown param keys at the factory boundary (see Strict Params below)
+  - `:strict` - Check the params at the factory boundary: reject unknown keys, and raise when the
+    body ignores or changes a param it was given (see Strict Params below)
+
+  **Variant-level** (set with `defvariant`): `:for`, `:as`, `:extends`, and `:assocs` (see Variant
+  Factories below).
 
   `:body` and `:strict` cascade from the module level and are ignored by non-struct factories.
   `:assocs` is factory-level only, because association keys belong to a single schema, and it
@@ -251,10 +265,10 @@ defmodule FactoryMan do
 
   ## Strict Params
 
-  Factories can silently ignore misspelled param keys: merge-style bodies surface the typo late
-  (in `struct!/2`, with an unhelpful message), and `body: :struct` bodies, which read params
-  selectively, never surface it at all. Opt in to `strict: true` to reject unknown keys up
-  front:
+  A factory can silently ignore params in two ways: the caller misspells a key, or the factory
+  body drops a key it was given (a forgotten `Map.merge(base_params, params)`, or a `body: :struct`
+  body that never reads the key). Either way, the test builds something other than what it asked
+  for, with no error. Opt in to `strict: true` to catch both:
 
   ```elixir
   deffactory user(params \\\\ %{}), struct: User, strict: true do
@@ -267,23 +281,50 @@ defmodule FactoryMan do
   # ** (ArgumentError) unknown params [:usernme] for strict factory :user ...
   ```
 
-  The check runs when building starts, before hooks and the factory body, against the keys of
-  the `:struct` option's struct (which includes virtual fields and association keys). All derived
-  functions (params builders, inserts, lists, and variants of the factory) are covered.
+  `strict: true` runs two checks:
 
-  When a factory intentionally accepts keys that are not struct fields (e.g. an input used only
-  to derive other fields), allow them explicitly:
+  1. **Unknown keys**, when building starts (before hooks and the body): every key must be a key
+     of the `:struct` option's struct, which includes virtual fields and association keys.
+  2. **Ignored or changed params**, after the body and its lazy values (before
+     `after_build_params`): every field in the params that entered the body (after
+     `before_build_params` and `assocs:`) must come out of the body with the same value, compared
+     with `==`. A plain map has been kept when each of its keys has been kept, so a body may add
+     defaults to a map field, or build a struct (e.g. an embed) from it; a caller's `%{}` is always
+     kept. Function values (replaced by lazy evaluation) and association keys (which a body may
+     resolve imperatively) are not checked.
 
   ```elixir
-  deffactory invoice(params \\\\ %{}), struct: Invoice, strict: [allow: [:line_item_count]],
-    body: :struct do
-    %Invoice{total: Map.get(params, :line_item_count, 1) * 100}
+  deffactory user(params \\\\ %{}), struct: User, strict: true do
+    %{username: "default"}
+  end
+
+  build_user_struct(%{username: "alice"})
+  # ** (ArgumentError) strict factory :user in MyApp.Factory ignored or changed params it was given:
+  #
+  #      :username - given "alice", built "default"
+  #    ...
+  ```
+
+  Both checks cover every derived function: params builders, inserts, lists, and variants of the
+  factory. The second check runs in the base factory's body, so it sees what the variants pass on;
+  a variant body that drops a caller's key is not checked.
+
+  List keys in `strict: [allow: [...]]` to exempt them from both checks. A key that is not a field
+  may then be passed (e.g. an input used only to derive other fields), and a key that is a field
+  may be changed by the body (e.g. a value it normalizes):
+
+  ```elixir
+  deffactory invoice(params \\\\ %{}), struct: Invoice, body: :struct,
+    strict: [allow: [:line_item_count, :email]] do
+    {count, params} = Map.pop(params, :line_item_count, 1)
+
+    %Invoice{total: count * 100, email: String.downcase(Map.get(params, :email, "a@b.c"))}
   end
   ```
 
-  Like other options, `:strict` can be set module-wide with `use FactoryMan, strict: true` and
-  overridden per-factory (e.g. `strict: false`). Non-struct factories have no reference field
-  set, so the option is ignored for them.
+  `:strict` cascades like other options, so `use FactoryMan, strict: true` in a base factory turns
+  it on for every factory that extends it; a factory can override it (e.g. `strict: false`).
+  Non-struct factories have no reference field set, so the option is ignored for them.
 
   ## Hooks
 
@@ -296,7 +337,7 @@ defmodule FactoryMan do
   ```text
   build_user_struct:
     params validation → before_build_params → assocs: resolution
-    → [factory body + lazy eval] → after_build_params
+    → [factory body + lazy eval] → strict params check → after_build_params
     → before_build_struct → struct!() → after_build_struct
 
   build_user_params (calls build_user_struct internally):
@@ -318,7 +359,9 @@ defmodule FactoryMan do
   `insert_user_struct/1,2` runs the same `before_insert` → insert → `after_insert` pipeline on
   an already-built struct. Use it after modifying a built struct, so records are shaped
   consistently no matter how they were constructed. A raw `Repo.insert!/2` would skip the
-  insert hooks.
+  insert hooks. It raises on a struct that has already been inserted (or has been deleted); to
+  insert a copy on purpose (e.g. into another prefix), mark it as built first with
+  `Ecto.put_meta(struct, state: :built)`.
 
   ### Hook Reference
 
@@ -331,9 +374,10 @@ defmodule FactoryMan do
   | `:before_insert`       | struct       | struct       | Modify struct just before database insertion                    |
   | `:after_insert`        | struct       | struct       | Post-process after insertion (e.g. reset associations)          |
 
-  A hook is a 1-arity remote capture such as `&__MODULE__.my_hook/1` or `&MyApp.Hooks.my_hook/1`.
-  Hooks are compiled into the generated functions, so anything that is not a remote capture, such
-  as an anonymous function (`fn ... end`), raises at compile time.
+  A hook is a 1-arity remote capture such as `&__MODULE__.my_hook/1` or `&MyApp.Hooks.my_hook/1`,
+  or a list of them, run in order (`after_insert: [&M.reset/1, &M.log/1]`). Hooks are compiled
+  into the generated functions, so anything that is not a remote capture, such as an anonymous
+  function (`fn ... end`), raises at compile time.
 
   ### Hook Order
 
@@ -349,7 +393,7 @@ defmodule FactoryMan do
   `after_insert` that resets associations therefore sees the final struct, after any factory
   `after_insert`.
 
-  To place a hook explicitly, pass `{hook, placement}`:
+  To place a hook (or a list of hooks) explicitly, pass `{hook, placement}`:
 
   | Placement         | Runs                                  | Default for       |
   | ----------------- | ------------------------------------- | ----------------- |
@@ -368,9 +412,9 @@ defmodule FactoryMan do
   ```
 
   Each hook receives the previous hook's result. The same hook set at two levels runs twice. On
-  a module with no parent, a placement behaves like a plain hook. To switch off an inherited hook
-  for one factory, replace it with an identity function:
-  `hooks: [after_insert: {&Function.identity/1, :replace_parent}]`.
+  a module with no parent, a placement behaves like a plain hook. To switch off the inherited hooks
+  for one factory, replace them with an empty list: `hooks: [after_insert: {[], :replace_parent}]`.
+  An empty list with any other placement has no effect, so it raises.
 
   `__factory_man__(:opts)` and `__factory_man__(:opts, name)` show each hook name's resolved list,
   in run order. Unknown hook names, a hook name set twice at one level, and invalid hook values
@@ -466,7 +510,7 @@ defmodule FactoryMan do
   the base factory because the caller's params override the variant defaults.
 
   Generated functions follow the pattern `{variant}_{base}`:
-  `build_admin_user_params/0,1`, `build_admin_user_struct/0,1`, `insert_admin_user/0,1,2`,
+  `build_admin_user_params/0,1,2`, `build_admin_user_struct/0,1,2`, `insert_admin_user/0,1,2`,
   plus list variants.
 
   ### Custom naming with `:as`
@@ -484,6 +528,90 @@ defmodule FactoryMan do
   This generates `build_mod_struct/0,1`, `insert_mod/0,1,2`, etc.
   instead of the default `build_moderator_user_struct`.
 
+  `:as` only renames the generated functions. The variant is still named `:moderator` wherever
+  variants are listed (`variants:`, `extends:`).
+
+  ### Two ways to write a variant
+
+  Which side of `Map.merge/2` a variant puts `params` on decides who wins when the caller passes
+  the same key. Both are useful:
+
+  ```elixir
+  # Defaults (the usual form): params last, so the caller can override the variant's values
+  defvariant admin(params \\\\ %{}), for: :user do
+    Map.merge(%{role: "admin"}, params)
+  end
+
+  # Forced values: params first, so the variant's values win, even over the caller. For a preset
+  # that guarantees something (e.g. an unindexable property is always unindexable).
+  defvariant unindexable(params \\\\ %{}), for: :property do
+    Map.merge(params, %{is_indexable: false})
+  end
+  ```
+
+  A variant can also check the caller's values and raise when they would break its guarantee (see
+  "Validated presets" in the [Cookbook](cookbook.html)).
+
+  ### Combining variants with `variants:`
+
+  Every generated function of a factory takes a `variants:` option, which applies several
+  variants in one build:
+
+  ```elixir
+  build_user_struct(%{username: "alice"}, variants: [:admin, :confirmed])
+  build_user_params(%{}, variants: [:admin])
+  build_user_struct_list(3, %{}, variants: [:confirmed])
+  insert_user(%{}, variants: [:admin, :confirmed], returning: true)
+  ```
+
+  Variants are listed by the name in their `defvariant` (`:admin`, not `:admin_user`). For
+  variants written in the defaults form, the caller's params win, then a later variant wins over
+  an earlier one:
+
+  ```elixir
+  build_user_struct(%{}, variants: [:admin, :moderator])     # role "moderator"
+  build_user_struct(%{role: "owner"}, variants: [:admin])    # role "owner"
+  ```
+
+  A variant that forces a value wins over the caller and over every variant after it in the list.
+  The chain runs from the last variant to the base factory: each variant's body receives the
+  output of the variant after it, so a later variant's values reach an earlier one as params.
+
+  A variant's own functions take `variants:` too, with the variant itself counted as the first in
+  the list: `build_admin_user_struct(params, variants: [:confirmed])` is the same as
+  `build_user_struct(params, variants: [:admin, :confirmed])`.
+
+  An unknown variant name, or a variant of another factory, raises and lists the known variants.
+
+  ### Building on other variants with `extends:`
+
+  `for:` always names the base factory. A variant builds on other variants of that factory with
+  `extends:`, and wins over the variants it extends:
+
+  ```elixir
+  defvariant senior(params \\\\ %{}), for: :user, extends: [:admin] do
+    Map.merge(%{title: "Senior admin"}, params)
+  end
+
+  build_senior_user_struct()   # role "admin", title "Senior admin"
+  ```
+
+  A variant that only extends others gives a recurring combination a name, with the full function
+  family:
+
+  ```elixir
+  defvariant confirmed_admin(params \\\\ %{}), for: :user, extends: [:admin, :confirmed] do
+    params
+  end
+  ```
+
+  A listed variant brings the variants it extends, and each variant is applied once, at its first
+  position in the list. A variant therefore always comes after the variants it extends, so it wins
+  over them whatever the list order: with `variants: [:senior, :admin]`, `senior`'s title wins.
+
+  A variant must be defined after the variants it extends, in the same module as its base factory.
+  Variant names are unique per factory.
+
   ## Sequences
 
   Generate sequential values or cycle through a list:
@@ -495,7 +623,9 @@ defmodule FactoryMan do
   FactoryMan.sequence(:order, fn n -> "ORD-\#{n}" end, start_at: 1000) # custom start value
   ```
 
-  Reset in test setup: `FactoryMan.Sequence.reset()`
+  `FactoryMan.Sequence.reset/0` clears every counter, for every test. Tests that run at the same
+  time share the counters, so in async tests reset only the sequence names that test uses:
+  `FactoryMan.Sequence.reset(:invoice_number)`.
 
   ## Lazy Evaluation
 
@@ -596,7 +726,12 @@ defmodule FactoryMan do
 
   iex> MyApp.Factories.Users.__factory_man__(:factories)
   [:user, :admin_user]
+
+  iex> MyApp.Factories.Users.__factory_man__(:variants, :user)
+  [:admin]
   ```
+
+  `:variants` lists a factory's variants by the names that `variants:` and `extends:` accept.
 
   `assocs:` is code evaluated at build time, so it does not appear in `:opts`. `:factories` lists
   every factory and variant registered in the module (variants under their full name), which
@@ -639,8 +774,9 @@ defmodule FactoryMan do
 
       Module.register_attribute(__MODULE__, :factory_man_registry, accumulate: true)
 
-      # Each variant's root factory, so the recursion guard treats a variant and its base as one
-      Module.register_attribute(__MODULE__, :factory_man_variant_roots, accumulate: true)
+      # One `{factory, variant, full_name, chain}` entry per variant. `chain` lists the full names
+      # of the variants it runs, the variants it extends first.
+      Module.register_attribute(__MODULE__, :factory_man_variant_defs, accumulate: true)
 
       parent_opts =
         case unquote(opts)[:extends] do
@@ -673,6 +809,8 @@ defmodule FactoryMan do
       - `__factory_man__(:opts, factory_name)` - the merged options for one factory or variant
       - `__factory_man__(:factories)` - all factory and variant names registered in this
         module (variants under their full name), in definition order
+      - `__factory_man__(:variants, factory_name)` - the names of a factory's variants, as
+        accepted by the `variants:` option, in definition order
       """
       def __factory_man__(:opts), do: @parent_factory_opts
 
@@ -681,6 +819,34 @@ defmodule FactoryMan do
 
       for {factory_man_name, factory_man_opts} <- @factory_man_registry do
         def __factory_man__(:opts, unquote(factory_man_name)), do: unquote(factory_man_opts)
+      end
+
+      @factory_man_variants Enum.reverse(@factory_man_variant_defs)
+      @factory_man_variant_full_names Enum.map(@factory_man_variants, &elem(&1, 2))
+
+      for factory_man_name <- @factory_man_names,
+          factory_man_name not in @factory_man_variant_full_names do
+        def __factory_man__(:variants, unquote(factory_man_name)) do
+          unquote(for {^factory_man_name, variant, _, _} <- @factory_man_variants, do: variant)
+        end
+      end
+
+      # Maps a variant name to the steps of its chain. The generated functions look up the
+      # `variants:` option here at runtime.
+      if @factory_man_names != [] do
+        for {factory_man_factory, factory_man_variant, _, factory_man_chain} <-
+              @factory_man_variants do
+          defp __factory_man_variant_chain__(
+                 unquote(factory_man_factory),
+                 unquote(factory_man_variant)
+               ) do
+            unquote(FactoryMan._chain_steps_ast(factory_man_chain))
+          end
+        end
+
+        defp __factory_man_variant_chain__(factory_name, variant_name) do
+          FactoryMan._raise_unknown_variant!(__MODULE__, factory_name, variant_name)
+        end
       end
     end
   end
@@ -731,8 +897,8 @@ defmodule FactoryMan do
     an Ecto schema `struct:`. Direct associations only. See the Associations section in the
     module documentation.
   - `:strict` - Set to `true` to raise on param keys that are not fields of the `:struct`
-    option's struct, or `[allow: [...]]` to permit specific extra keys (see the Strict Params
-    section). Ignored for non-struct factories.
+    option's struct, and on params the body ignores or changes. `[allow: [...]]` does the same,
+    except for the listed keys (see the Strict Params section). Ignored for non-struct factories.
 
   ## Generated Functions
 
@@ -740,20 +906,20 @@ defmodule FactoryMan do
   empty map, the following functions are generated. Insert functions require a configured repo, a table-backed
   Ecto schema, and `insert?` not set to `false`.
 
-  - `build_user_struct/0,1` - Returns an unsaved struct
-  - `build_user_params/0,1` - Clean params map derived from the built struct
-  - `build_user_string_params/0,1` - Same, with string keys
+  - `build_user_struct/0,1,2` - Returns an unsaved struct
+  - `build_user_params/0,1,2` - Clean params map derived from the built struct
+  - `build_user_string_params/0,1,2` - Same, with string keys
   - `insert_user/0,1,2` - Inserts into the database (when repo is configured)
-  - `build_user_struct_list/1,2` - Builds multiple structs
-  - `build_user_params_list/1,2` - Builds multiple params maps
-  - `build_user_string_params_list/1,2` - Builds multiple string-keyed params maps
+  - `build_user_struct_list/1,2,3` - Builds multiple structs
+  - `build_user_params_list/1,2,3` - Builds multiple params maps
+  - `build_user_string_params_list/1,2,3` - Builds multiple string-keyed params maps
   - `insert_user_list/1,2,3` - Inserts multiple items (when repo is configured)
   - `insert_user_struct/1,2` - Inserts an already-built struct through the insert pipeline
 
   For a factory named `greeting` without `struct:`, simplified names are used:
 
-  - `build_greeting/1` - Returns the factory's value
-  - `build_greeting_list/2` - Builds multiple items
+  - `build_greeting/1,2` - Returns the factory's value (`/2` takes options, e.g. `variants:`)
+  - `build_greeting_list/2,3` - Builds multiple items
 
   With a default argument in the factory head, `build_greeting/0` and `build_greeting_list/1` are
   also generated.
@@ -827,8 +993,15 @@ defmodule FactoryMan do
               "invalid :body option: #{inspect(body)}. Expected :params (default) or :struct."
       end
 
-      # Compile-time parse of :strict into `false` (disabled) or a list of allowed extra keys
+      # Compile-time parse of :strict into `false` (disabled) or a list of allowed keys
       strict = FactoryMan._parse_strict!(Keyword.get(merged_opts, :strict, false))
+
+      # A strict factory compares the params that enter the body against the body's result, so
+      # the entering params are bound to a variable before the body runs
+      params_check =
+        if strict do
+          {Macro.var(:factory_man_entering_params, FactoryMan), strict, factory_name}
+        end
 
       # Extract hooks - used many times throughout
       hooks = Keyword.get(merged_opts, :hooks, [])
@@ -881,6 +1054,12 @@ defmodule FactoryMan do
         end
 
         Code.eval_quoted(
+          FactoryMan.Codegen.variants_fn(build_fn, factory_name, factory_name, [], build_fn),
+          [],
+          __ENV__
+        )
+
+        Code.eval_quoted(
           FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
           [],
           __ENV__
@@ -911,8 +1090,15 @@ defmodule FactoryMan do
 
               unquote(association_step)
 
+              unquote(FactoryMan.Codegen.bind_entering_params(params_check, user_var))
+
               unquote(
-                FactoryMan.Codegen.build_struct_pipeline(block, hooks, merged_opts[:struct])
+                FactoryMan.Codegen.build_struct_pipeline(
+                  block,
+                  hooks,
+                  merged_opts[:struct],
+                  params_check
+                )
               )
             end)
           end
@@ -929,16 +1115,28 @@ defmodule FactoryMan do
 
               unquote(association_step)
 
+              unquote(FactoryMan.Codegen.bind_entering_params(params_check, user_var))
+
               unquote(
-                FactoryMan.Codegen.hook_pipe(
-                  quote(do: FactoryMan.evaluate_lazy_attributes(unquote(block))),
-                  hooks,
-                  :after_build_struct
-                )
+                quote(do: FactoryMan.evaluate_lazy_attributes(unquote(block)))
+                |> FactoryMan.Codegen.check_params_used(params_check, merged_opts[:struct])
+                |> FactoryMan.Codegen.hook_pipe(hooks, :after_build_struct)
               )
             end)
           end
         end
+
+        Code.eval_quoted(
+          FactoryMan.Codegen.variants_fn(
+            build_struct_fn,
+            factory_name,
+            factory_name,
+            [],
+            build_struct_fn
+          ),
+          [],
+          __ENV__
+        )
 
         Code.eval_quoted(
           FactoryMan.Codegen.map_list_fns(
@@ -977,11 +1175,13 @@ defmodule FactoryMan do
           # Implementation - uses plain_var_ast since pattern match variables
           # are only needed in the params builder body. The insert pipeline itself lives in
           # insert_*_struct; this function only adds the build step in front of it.
-          @doc "Builds the corresponding struct and inserts it. `repo_insert_opts` are passed to the repo's `insert!/2`."
-          def unquote(insert_fn)(unquote(plain_var_ast), repo_insert_opts)
-              when is_list(repo_insert_opts) do
+          @doc FactoryMan.Codegen.insert_doc()
+          def unquote(insert_fn)(unquote(plain_var_ast), opts) when is_list(opts) do
+            {variants, repo_insert_opts} =
+              FactoryMan._pop_variants!(opts, unquote("#{insert_fn}/2"))
+
             unquote(user_var)
-            |> unquote(:"build_#{factory_name}_struct")()
+            |> unquote(:"build_#{factory_name}_struct")(variants: variants)
             |> unquote(:"insert_#{factory_name}_struct")(repo_insert_opts)
           end
 
@@ -1031,13 +1231,18 @@ defmodule FactoryMan do
         Map.merge(base_params, params)
       end
 
-      # Generated: build_admin_user_struct/0,1, insert_admin_user/0,1,2, etc.
+      # Generated: build_admin_user_struct/0,1,2, insert_admin_user/0,1,2, etc.
       # Calling build_admin_user_struct() is equivalent to:
       #   build_user_struct(%{role: "admin"})
 
   ## Options
 
-  - `:for` - (atom, required) The name of the base factory to wrap (e.g. `:user`)
+  - `:for` - (atom, required) The name of the base factory to wrap (e.g. `:user`). It must name
+  a factory; a variant builds on other variants with `:extends`.
+
+  - `:extends` - A list of variants of the same factory to build on (e.g. `extends: [:admin]`).
+  They run before this variant's body, so this variant wins over them. Each must be defined
+  earlier in the module.
 
   - `:as` - Instead of the default `<variant>_<base>` structure used when generating factory
   functions, (e.g. `build_admin_user_struct`), you may specify a custom name to use when
@@ -1050,8 +1255,8 @@ defmodule FactoryMan do
   cannot relax it: a variant `default: nil` on a key the base requires raises on every default
   build.
 
-  Variants are registered under their full name, so a variant can itself serve as the base of
-  another variant (e.g. `defvariant senior(params \\\\ %{}), for: :admin_user`).
+  Variants are listed by their name (e.g. `:admin`) in `extends:` and in the `variants:` option
+  of the generated functions (see Variant Factories in the module documentation).
   """
 
   defmacro defvariant(variant_head, opts, do: block) do
@@ -1065,16 +1270,31 @@ defmodule FactoryMan do
     has_default = extraction.has_default
     plain_var_ast = extraction.plain_var
 
-    _validate_opts!(opts, [:for, :as, :assocs], "defvariant #{variant_name}")
+    _validate_opts!(opts, [:for, :as, :assocs, :extends], "defvariant #{variant_name}")
     {assocs_ast, opts} = pop_assocs(opts)
-    base_factory_name = opts[:for] || raise ArgumentError, "defvariant requires the :for option"
+
+    base_factory_name =
+      opts[:for] ||
+        raise ArgumentError,
+              "defvariant #{variant_name} requires the :for option, naming its base factory " <>
+                "(e.g. `for: :user`)"
+
     as_name = opts[:as]
+    extends = Keyword.get(opts, :extends, [])
+
+    unless is_list(extends) and Enum.all?(extends, &is_atom/1) do
+      raise ArgumentError,
+            "defvariant #{variant_name}: extends: must be a list of variant names, " <>
+              "got: #{inspect(extends)}"
+    end
+
     caller_module = __CALLER__.module
 
     quote bind_quoted: [
             variant_name: variant_name,
             base_factory_name: base_factory_name,
             as_name: as_name,
+            extends: extends,
             head_ast: Macro.escape(head_ast, unquote: true),
             user_var: Macro.escape(user_var, unquote: true),
             arg_ast_no_default: Macro.escape(arg_ast_no_default, unquote: true),
@@ -1085,6 +1305,14 @@ defmodule FactoryMan do
             assocs_ast: Macro.escape(assocs_ast, unquote: true),
             block: Macro.escape(block, unquote: true)
           ] do
+      # A variant builds on a factory; it builds on other variants with `extends:`
+      FactoryMan._validate_variant!(
+        @factory_man_variant_defs,
+        base_factory_name,
+        variant_name,
+        extends
+      )
+
       # Look up the base factory's registered metadata
       base_entry =
         @factory_man_registry
@@ -1093,7 +1321,8 @@ defmodule FactoryMan do
       if is_nil(base_entry) do
         raise ArgumentError,
               "defvariant #{variant_name}: base factory :#{base_factory_name} not found. " <>
-                "Ensure deffactory :#{base_factory_name} is defined before defvariant."
+                "Define deffactory #{base_factory_name}(...) before this defvariant, in the same " <>
+                "module (a variant cannot be defined in another module than its base factory)."
       end
 
       {_base_name, base_opts} = base_entry
@@ -1102,41 +1331,35 @@ defmodule FactoryMan do
       # The :as option overrides this combined name.
       full_name = as_name || :"#{variant_name}_#{base_factory_name}"
 
-      root_name =
-        Enum.find_value(@factory_man_variant_roots, base_factory_name, fn
-          {^base_factory_name, root} -> root
-          _ -> nil
-        end)
-
-      @factory_man_variant_roots {full_name, root_name}
+      @factory_man_variant_defs {
+        base_factory_name,
+        variant_name,
+        full_name,
+        FactoryMan._variant_chain(@factory_man_variant_defs, base_factory_name, extends) ++
+          [full_name]
+      }
 
       # A variant's associations resolve before the variant body. The base factory then reuses
-      # the resolved structs. The base's strict check runs first, so a bad key fails before
-      # anything is built.
+      # the resolved structs, and runs its own strict check after every variant body.
       association_step =
-        if assocs_ast do
-          quote do
-            FactoryMan._validate_params!(
-              unquote(user_var),
-              unquote(FactoryMan._parse_strict!(Keyword.get(base_opts, :strict, false))),
-              unquote(base_opts[:struct]),
-              unquote(base_factory_name)
-            )
-
-            unquote(
-              FactoryMan._association_step(
-                assocs_ast,
-                user_var,
-                base_opts[:struct],
-                caller_module,
-                full_name
-              )
-            )
-          end
-        end
+        FactoryMan._association_step(
+          assocs_ast,
+          user_var,
+          base_opts[:struct],
+          caller_module,
+          full_name
+        )
 
       if association_step do
         defp unquote(FactoryMan._assocs_fn(full_name))(), do: unquote(assocs_ast)
+      end
+
+      # The variant's step (its associations, then its body) returns the params for the next
+      # step. Every chain that includes the variant runs this step.
+      defp unquote(FactoryMan._variant_step_fn(full_name))(unquote(arg_ast_no_default)) do
+        unquote(association_step)
+
+        unquote(block)
       end
 
       projections = %{
@@ -1150,22 +1373,25 @@ defmodule FactoryMan do
       # Generate raw builder variant (non-struct base factories only)
       if is_nil(base_opts[:struct]) do
         build_fn = :"build_#{full_name}"
-        base_build_fn = :"build_#{base_factory_name}"
 
         @doc "Builds a value from the `:#{variant_name}` variant of the `:#{base_factory_name}` factory."
         def unquote({build_fn, [], [head_ast]})
 
-        def unquote({build_fn, [], [arg_ast_no_default]}) do
-          FactoryMan.Associations.track_factory(
-            __MODULE__,
-            unquote(full_name),
-            unquote(root_name),
-            fn ->
-              unquote(block)
-              |> unquote(base_build_fn)()
-            end
-          )
+        def unquote(build_fn)(unquote(plain_var_ast)) do
+          unquote(build_fn)(unquote(user_var), [])
         end
+
+        Code.eval_quoted(
+          FactoryMan.Codegen.variants_fn(
+            build_fn,
+            full_name,
+            base_factory_name,
+            [variant_name],
+            :"build_#{base_factory_name}"
+          ),
+          [],
+          __ENV__
+        )
 
         Code.eval_quoted(
           FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
@@ -1181,19 +1407,21 @@ defmodule FactoryMan do
         @doc "Builds a `#{inspect(base_opts[:struct])}` struct from the `:#{variant_name}` variant of the `:#{base_factory_name}` factory (in memory, not persisted)."
         def unquote({build_struct_fn, [], [head_ast]})
 
-        def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
-          FactoryMan.Associations.track_factory(
-            __MODULE__,
-            unquote(full_name),
-            unquote(root_name),
-            fn ->
-              unquote(association_step)
-
-              unquote(block)
-              |> unquote(:"build_#{base_factory_name}_struct")()
-            end
-          )
+        def unquote(build_struct_fn)(unquote(plain_var_ast)) do
+          unquote(build_struct_fn)(unquote(user_var), [])
         end
+
+        Code.eval_quoted(
+          FactoryMan.Codegen.variants_fn(
+            build_struct_fn,
+            full_name,
+            base_factory_name,
+            [variant_name],
+            :"build_#{base_factory_name}_struct"
+          ),
+          [],
+          __ENV__
+        )
 
         Code.eval_quoted(
           FactoryMan.Codegen.map_list_fns(
@@ -1232,11 +1460,13 @@ defmodule FactoryMan do
           )
 
           # Build through the variant, then insert through the base factory's pipeline
-          @doc "Builds the corresponding struct and inserts it. `repo_insert_opts` are passed to the repo's `insert!/2`."
-          def unquote(insert_fn)(unquote(plain_var_ast), repo_insert_opts)
-              when is_list(repo_insert_opts) do
+          @doc FactoryMan.Codegen.insert_doc()
+          def unquote(insert_fn)(unquote(plain_var_ast), opts) when is_list(opts) do
+            {variants, repo_insert_opts} =
+              FactoryMan._pop_variants!(opts, unquote("#{insert_fn}/2"))
+
             unquote(user_var)
-            |> unquote(build_struct_fn)()
+            |> unquote(build_struct_fn)(variants: variants)
             |> unquote(:"insert_#{base_factory_name}_struct")(repo_insert_opts)
           end
 
@@ -1261,9 +1491,8 @@ defmodule FactoryMan do
         end
       end
 
-      # Register the variant under its full name so it can itself be used as a defvariant base.
-      # The base factory's opts describe the variant's generated functions accurately, since
-      # variants delegate to the base pipeline.
+      # Register the variant under its full name. The base factory's opts describe the variant's
+      # generated functions accurately, since variants delegate to the base pipeline.
       @factory_man_registry {full_name, base_opts}
     end
   end
@@ -1285,6 +1514,155 @@ defmodule FactoryMan do
 
   @doc false
   def _assocs_fn(factory_name), do: :"__factory_man_assocs_#{factory_name}__"
+
+  @doc false
+  def _variant_step_fn(full_name), do: :"__factory_man_variant_step_#{full_name}__"
+
+  # Checks `for:` and `extends:` against the variants defined so far (`defs`, newest first)
+  @doc false
+  def _validate_variant!(defs, factory_name, variant_name, extends) do
+    subject = "defvariant #{variant_name}"
+
+    case Enum.find(defs, &(elem(&1, 2) == factory_name)) do
+      {factory, name, _full_name, _chain} ->
+        raise ArgumentError,
+              "#{subject}: for: must name a factory, and #{inspect(factory_name)} is a variant. " <>
+                "Build on it with for: #{inspect(factory)}, extends: [#{inspect(name)}]"
+
+      nil ->
+        :ok
+    end
+
+    known = for {^factory_name, name, _, _} <- Enum.reverse(defs), do: name
+
+    if variant_name in known do
+      raise ArgumentError,
+            "#{subject}: factory #{inspect(factory_name)} already has a variant named " <>
+              "#{inspect(variant_name)}"
+    end
+
+    case extends -- known do
+      [] ->
+        :ok
+
+      unknown ->
+        raise ArgumentError,
+              "#{subject}: unknown variants #{inspect(unknown)} in extends: for factory " <>
+                "#{inspect(factory_name)}. Known variants: #{inspect(known)}. A variant must be " <>
+                "defined before the variants that extend it."
+    end
+  end
+
+  # The full names of the variants that `variant_names` run, in order. Each name brings the
+  # variants it extends first, and each variant appears once, where it first appears, so a
+  # variant always comes after the variants it extends.
+  @doc false
+  def _variant_chain(defs, factory_name, variant_names) do
+    variant_names
+    |> Enum.flat_map(fn variant_name ->
+      Enum.find_value(defs, fn
+        {^factory_name, ^variant_name, _full_name, chain} -> chain
+        _ -> nil
+      end)
+    end)
+    |> Enum.uniq()
+  end
+
+  @doc false
+  def _chain_steps_ast(chain) do
+    for full_name <- chain do
+      step = Macro.var(_variant_step_fn(full_name), nil)
+
+      quote do: {unquote(full_name), &(unquote(step) / 1)}
+    end
+  end
+
+  @doc false
+  def _raise_unknown_variant!(module, factory_name, variant_name) do
+    raise ArgumentError,
+          "unknown variant #{inspect(variant_name)} for factory #{inspect(factory_name)} in " <>
+            "#{inspect(module)}. Known variants: " <>
+            "#{inspect(module.__factory_man__(:variants, factory_name))}. List a variant by the " <>
+            "name in its defvariant (e.g. :admin), not by its generated function name."
+  end
+
+  # Runs the steps of the named variants, then the base factory's builder. A variant's body
+  # merges its defaults under the params it receives, so the last variant runs first: its values
+  # reach the earlier variants as params, and win.
+  @doc false
+  def _build_with_variants(_module, _name, _root, [], params, _chain_fun, base_fun) do
+    base_fun.(params)
+  end
+
+  def _build_with_variants(module, name, root, variant_names, params, chain_fun, base_fun) do
+    steps =
+      variant_names
+      |> Enum.flat_map(&chain_fun.(root, &1))
+      |> Enum.uniq_by(&elem(&1, 0))
+      |> Enum.reverse()
+
+    FactoryMan.Associations.track_factory(module, name, root, fn ->
+      steps
+      |> Enum.reduce(params, fn {_full_name, step}, params -> step.(params) end)
+      |> base_fun.()
+    end)
+  end
+
+  @doc false
+  def _variants_opt!(opts, function) do
+    unless Keyword.keyword?(opts) do
+      raise ArgumentError,
+            "expected options for #{function} to be a keyword list, got: #{inspect(opts)}"
+    end
+
+    case Keyword.keys(opts) -- [:variants] do
+      [] ->
+        opts |> Keyword.get(:variants, []) |> validate_variant_names!(function)
+
+      unknown ->
+        raise ArgumentError,
+              "unknown options #{inspect(unknown)} for #{function}. Allowed options: [:variants]"
+    end
+  end
+
+  # `insert_*` takes one option list: `:variants` is FactoryMan's, and the rest belong to the repo
+  @doc false
+  def _pop_variants!(opts, function) do
+    {variants, repo_insert_opts} = Keyword.pop(opts, :variants, [])
+
+    {validate_variant_names!(variants, function), repo_insert_opts}
+  end
+
+  defp validate_variant_names!(variants, function) do
+    if is_list(variants) and Enum.all?(variants, &is_atom/1) do
+      variants
+    else
+      raise ArgumentError,
+            "expected variants: for #{function} to be a list of variant names, " <>
+              "got: #{inspect(variants)}"
+    end
+  end
+
+  @doc false
+  def _ensure_insertable!(struct, repo_insert_opts, insert_struct_fn, insert_fn) do
+    if Keyword.has_key?(repo_insert_opts, :variants) do
+      raise ArgumentError,
+            "#{insert_struct_fn}/2 inserts a struct that has already been built, so it does not " <>
+              "take variants:. Use #{insert_fn}/2 to build with variants and insert."
+    end
+
+    case struct.__meta__.state do
+      :built ->
+        struct
+
+      state ->
+        raise ArgumentError,
+              "#{insert_struct_fn}/2 expects a struct that has not been inserted, got a " <>
+                "%#{inspect(struct.__struct__)}{} whose Ecto metadata state is #{inspect(state)}. " <>
+                "To insert it again on purpose (e.g. into another prefix), mark it as built " <>
+                "first: Ecto.put_meta(struct, state: :built)"
+    end
+  end
 
   # The step that resolves declared associations into the params variable, or `nil` without
   # `assocs:`. Validation of the declaration itself happens at build time.
@@ -1512,8 +1890,20 @@ defmodule FactoryMan do
 
   @doc false
   def _validate_params!(params, _strict, _struct_module, factory_name) when not is_map(params) do
+    hint =
+      cond do
+        is_list(params) and Keyword.has_key?(params, :variants) ->
+          " Options go in the second argument, after the params: (%{}, variants: [...])."
+
+        is_list(params) and params != [] and Keyword.keyword?(params) ->
+          " Struct factories take a map: pass %{...} instead of a keyword list."
+
+        true ->
+          ""
+      end
+
     raise ArgumentError,
-          "expected a params map for factory :#{factory_name}, got: #{inspect(params)}"
+          "expected a params map for factory :#{factory_name}, got: #{inspect(params)}.#{hint}"
   end
 
   def _validate_params!(params, false = _strict, _struct_module, _factory_name),
@@ -1528,7 +1918,8 @@ defmodule FactoryMan do
       raise ArgumentError,
             "unknown params #{inspect(Enum.sort(unknown))} for strict factory " <>
               ":#{factory_name} (struct #{inspect(struct_module)}). " <>
-              "Allowed keys: #{inspect(Enum.sort(allowed))}"
+              "Allowed keys: #{inspect(Enum.sort(allowed))}. Fix the key, or list it in " <>
+              "strict: [allow: [...]] if the factory uses it."
     end
 
     params
@@ -1536,7 +1927,87 @@ defmodule FactoryMan do
 
   def _validate_params!(params, _strict, _struct_module, _factory_name), do: params
 
-  # Parses `:strict` into `false` (disabled) or a list of allowed extra keys
+  # A strict factory's body must keep every field it receives: each field in the params that
+  # entered the body must come out of it with the same value (see `kept?/2`). Function values,
+  # which lazy evaluation replaces, and association keys, which a body may resolve imperatively,
+  # are not checked.
+  @doc false
+  def _check_params_used!(result, entering, allow, struct_module, module, factory_name)
+      when is_map(result) and is_map(entering) do
+    skipped = allow ++ association_keys(struct_module)
+    fields = Map.keys(struct_module.__struct__()) -- [:__struct__, :__meta__ | skipped]
+
+    problems =
+      entering
+      |> Enum.filter(fn {key, value} -> key in fields and not is_function(value) end)
+      |> Enum.flat_map(fn {key, value} ->
+        case Map.fetch(result, key) do
+          {:ok, built} -> if kept?(value, built), do: [], else: [{key, value, {:ok, built}}]
+          :error -> [{key, value, :error}]
+        end
+      end)
+
+    if problems != [] do
+      details =
+        problems
+        |> Enum.sort()
+        |> Enum.map_join("\n", fn
+          {key, value, {:ok, built}} ->
+            "  #{inspect(key)} - given #{inspect(value)}, built #{inspect(built)}"
+
+          {key, value, :error} ->
+            "  #{inspect(key)} - given #{inspect(value)}, missing from the result"
+        end)
+
+      raise ArgumentError, """
+      strict factory #{inspect(factory_name)} in #{inspect(module)} ignored or changed params it was given:
+
+      #{details}
+
+      Merge params into the body's result (e.g. `Map.merge(base_params, params)`). If the factory \
+      changes these keys on purpose, list them in `strict: [allow: [...]]`.\
+      """
+    end
+
+    result
+  end
+
+  # `struct!/2` also accepts a keyword list, so a body may return one
+  def _check_params_used!(result, entering, allow, struct_module, module, factory_name)
+      when is_list(result) and is_map(entering) do
+    if Keyword.keyword?(result),
+      do:
+        _check_params_used!(Map.new(result), entering, allow, struct_module, module, factory_name)
+
+    result
+  end
+
+  def _check_params_used!(result, _entering, _allow, _struct_module, _module, _factory_name),
+    do: result
+
+  # A plain map from the caller has been kept when each of its keys has been kept, so a body may
+  # add defaults to a map field, or build a struct (e.g. an embed) from it. Other values must be
+  # equal (`==`).
+  defp kept?(given, built) when is_map(given) and not is_struct(given) and is_map(built) do
+    built = if is_struct(built), do: Map.from_struct(built), else: built
+
+    Enum.all?(given, fn {key, value} ->
+      case Map.fetch(built, key) do
+        {:ok, built_value} -> kept?(value, built_value)
+        :error -> false
+      end
+    end)
+  end
+
+  defp kept?(given, built), do: given == built
+
+  defp association_keys(struct_module) do
+    if function_exported?(struct_module, :__schema__, 1),
+      do: struct_module.__schema__(:associations),
+      else: []
+  end
+
+  # Parses `:strict` into `false` (disabled) or a list of allowed keys
   @doc false
   def _parse_strict!(false), do: false
   def _parse_strict!(true), do: []
@@ -1546,7 +2017,7 @@ defmodule FactoryMan do
       allow
     else
       raise ArgumentError,
-            "invalid :strict option: #{inspect(strict)}. Allowed extra keys must be atoms."
+            "invalid :strict option: #{inspect(strict)}. Allowed keys must be atoms."
     end
   end
 
@@ -1638,13 +2109,16 @@ defmodule FactoryMan do
   # Hooks are compiled into the generated functions as remote calls, so only remote captures are
   # accepted. Other functions (anonymous functions, local captures) have no code form to compile.
   defp validate_hook!(hook_name, value, subject) do
-    {fun, placement} = split_hook(hook_name, value)
+    {funs, placement} = split_hook(hook_name, value)
 
-    unless is_function(fun, 1) and Function.info(fun, :type) == {:type, :external} do
+    unless Enum.all?(
+             funs,
+             &(is_function(&1, 1) and Function.info(&1, :type) == {:type, :external})
+           ) do
       raise ArgumentError,
             "invalid hook #{inspect(hook_name)} for #{subject}: #{inspect(value)}. " <>
-              "Expected a 1-arity remote capture such as `&MyModule.my_hook/1`, " <>
-              "or `{capture, placement}`."
+              "Expected a 1-arity remote capture such as `&MyModule.my_hook/1`, a list of " <>
+              "them, or either one as `{hooks, placement}`."
     end
 
     if placement not in @hook_placements do
@@ -1652,10 +2126,24 @@ defmodule FactoryMan do
             "invalid placement #{inspect(placement)} for hook #{inspect(hook_name)} for " <>
               "#{subject}. Expected one of: #{inspect(@hook_placements)}."
     end
+
+    # An empty list only has an effect when it replaces the inherited hooks
+    if funs == [] and placement != :replace_parent do
+      raise ArgumentError,
+            "empty hook list for #{inspect(hook_name)} for #{subject} has no effect. " <>
+              "To switch off the inherited hooks, use `{[], :replace_parent}`."
+    end
   end
 
-  defp split_hook(_hook_name, {fun, placement}), do: {fun, placement}
-  defp split_hook(hook_name, fun), do: {fun, Keyword.fetch!(@hook_default_placements, hook_name)}
+  # Normalizes a hook value into its list of functions and its placement
+  defp split_hook(_hook_name, {funs, placement}) when is_list(funs), do: {funs, placement}
+  defp split_hook(_hook_name, {fun, placement}), do: {[fun], placement}
+
+  defp split_hook(hook_name, funs) when is_list(funs),
+    do: {funs, Keyword.fetch!(@hook_default_placements, hook_name)}
+
+  defp split_hook(hook_name, fun),
+    do: {[fun], Keyword.fetch!(@hook_default_placements, hook_name)}
 
   @doc false
   def _merge_opts(parent_opts, child_opts) do
@@ -1687,9 +2175,9 @@ defmodule FactoryMan do
 
   defp place_hook(inherited, hook_name, child_value) do
     case split_hook(hook_name, child_value) do
-      {fun, :before_parent} -> [fun | inherited]
-      {fun, :after_parent} -> inherited ++ [fun]
-      {fun, :replace_parent} -> [fun]
+      {funs, :before_parent} -> funs ++ inherited
+      {funs, :after_parent} -> inherited ++ funs
+      {funs, :replace_parent} -> funs
     end
   end
 

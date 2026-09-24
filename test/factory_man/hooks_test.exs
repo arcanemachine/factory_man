@@ -85,9 +85,18 @@ defmodule FactoryMan.HooksTest.ChildFactory do
     struct: Traced,
     hooks: [
       before_build_params: {&Tracer.factory/1, :replace_parent},
-      after_build_params: {&Function.identity/1, :replace_parent}
+      after_build_params: {[], :replace_parent}
     ] do
     Map.merge(%{name: "replaced"}, params)
+  end
+
+  deffactory listed(params \\ %{}),
+    struct: Traced,
+    hooks: [
+      before_build_params: [&Tracer.factory/1, &Tracer.variant/1],
+      after_build_params: {[&Tracer.factory/1, &Tracer.variant/1], :after_parent}
+    ] do
+    Map.merge(%{name: "listed"}, params)
   end
 
   deffactory whole_struct(params \\ %{}),
@@ -202,13 +211,39 @@ defmodule FactoryMan.HooksTest do
       assert stage_trace(&ChildFactory.build_replaced_struct/0) == [
                # before_build_params (replaced by the factory's hook)
                :factory,
-               # after_build_params has been replaced by `Function.identity/1`
+               # after_build_params has been switched off with `{[], :replace_parent}`
                # before_build_struct and after_build_struct (inherited)
                :parent,
                :grandparent,
                :grandparent,
                :parent
              ]
+    end
+
+    test "a hook list runs in order, and a placement applies to the whole list" do
+      trace = stage_trace(&ChildFactory.build_listed_params/0)
+
+      assert Enum.take(trace, 10) == [
+               # before_build_params: a plain list runs after the inherited hooks
+               :grandparent,
+               :parent,
+               :child,
+               :factory,
+               :variant,
+               # after_build_params: the list has been placed :after_parent
+               :child,
+               :parent,
+               :grandparent,
+               :factory,
+               :variant
+             ]
+    end
+
+    test "{[], :replace_parent} leaves no hooks for that hook name" do
+      refute Keyword.has_key?(
+               ChildFactory.__factory_man__(:opts, :replaced)[:hooks],
+               :after_build_params
+             )
     end
 
     test "placements on a root module behave like a plain hook" do
@@ -336,6 +371,28 @@ defmodule FactoryMan.HooksTest do
       assert_raise ArgumentError, ~r/invalid hook :after_insert/, fn ->
         defmodule WrongArityHook do
           use FactoryMan, hooks: [after_insert: {&Map.put/3, :after_parent}]
+        end
+      end
+    end
+
+    test "rejects a hook list with an invalid function" do
+      assert_raise ArgumentError, ~r/invalid hook :after_insert for use FactoryMan/, fn ->
+        defmodule InvalidListHook do
+          use FactoryMan, hooks: [after_insert: [&Tracer.parent/1, fn value -> value end]]
+        end
+      end
+    end
+
+    test "rejects an empty hook list unless it replaces the inherited hooks" do
+      for value <- [[], {[], :before_parent}, {[], :after_parent}] do
+        assert_raise ArgumentError, ~r/empty hook list for :after_insert .* has no effect/, fn ->
+          Code.eval_quoted(
+            quote do
+              defmodule EmptyListHook do
+                use FactoryMan, hooks: [after_insert: unquote(Macro.escape(value))]
+              end
+            end
+          )
         end
       end
     end

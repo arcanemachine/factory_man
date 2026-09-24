@@ -114,6 +114,14 @@ defmodule FactoryMan.AssocTest.Factory do
     Map.merge(%{title: "guest post"}, params)
   end
 
+  # Extends a variant that declares its own builder for the same key
+  defvariant featured(params \\ %{}),
+    for: :post,
+    extends: [:guest],
+    assocs: [author: fn params -> build_user_struct(Map.put_new(params, :username, "star")) end] do
+    Map.merge(%{title: "featured post"}, params)
+  end
+
   deffactory anonymous_post(params \\ %{}),
     struct: EctoPost,
     assocs: [author: fn params -> build_user_struct(Map.put_new(params, :username, "anon")) end] do
@@ -243,7 +251,9 @@ defmodule FactoryMan.AssocTest.Factory do
   defvariant mentored(params \\ %{}),
     for: :strict_user,
     assocs: [mentor: &build_user_struct/1] do
-    Map.merge(%{username: "mentored"}, params)
+    {level, params} = Map.pop(params, :level, 1)
+
+    Map.merge(%{username: "mentored-#{level}"}, params)
   end
 
   ## Required
@@ -840,15 +850,29 @@ defmodule FactoryMan.AssocTest do
       assert_received {:post_body, %{author: %EctoUser{username: "guest"}}}
     end
 
-    test "the base's strict check runs before the variant's associations" do
+    test "the base's strict check runs after the variant body" do
       assert_raise ArgumentError,
                    ~r/unknown params \[:typo\] for strict factory :strict_user/,
                    fn ->
                      Factory.build_mentored_strict_user_struct(%{typo: true})
                    end
 
-      refute_received {:user_build, _}
       assert %EctoUser{mentor: %EctoUser{}} = Factory.build_mentored_strict_user_struct()
+    end
+
+    test "a variant with associations can use up a key its strict base does not know" do
+      assert %EctoUser{username: "mentored-3"} =
+               Factory.build_mentored_strict_user_struct(%{level: 3})
+    end
+
+    test "a variant that extends another resolves its associations first, so its builder wins" do
+      post = Factory.build_featured_post_struct()
+
+      assert %EctoUser{username: "star"} = post.author
+      assert post.title == "featured post"
+
+      # The extended variant ran, and reused the resolved author
+      assert_received {:guest_body, %{author: %EctoUser{username: "star"}}}
     end
 
     test "caller values still win over the variant builder" do
