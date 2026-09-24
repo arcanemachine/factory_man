@@ -16,6 +16,39 @@ defmodule FactoryMan.Codegen do
   # - `:has_pattern_match` / `:has_default` - gate which convenience arities are generated
 
   @doc """
+  Wraps `value_ast` in a call to each of the factory's `hook_name` hooks, in run order. The hooks
+  are known at compile time, so they are unrolled into nested remote calls (no runtime lookup),
+  and a hook name with nothing set returns `value_ast` unchanged.
+  """
+  def hook_pipe(value_ast, hooks, hook_name) do
+    hooks
+    |> Keyword.get(hook_name, [])
+    |> Enum.reduce(value_ast, fn hook, acc ->
+      {:module, module} = Function.info(hook, :module)
+      {:name, name} = Function.info(hook, :name)
+
+      quote do: unquote(module).unquote(name)(unquote(acc))
+    end)
+  end
+
+  @doc """
+  The params pipeline of a struct factory with `body: :params`: lazy evaluation of the body's
+  result, the params-stage hooks, `struct!/2`, then the `after_build_struct` hooks.
+  """
+  def build_struct_pipeline(block, hooks, struct_module) do
+    params =
+      quote(do: FactoryMan.evaluate_lazy_attributes(unquote(block)))
+      |> hook_pipe(hooks, :after_build_params)
+      |> hook_pipe(hooks, :before_build_struct)
+
+    hook_pipe(
+      quote(do: struct!(unquote(struct_module), unquote(params))),
+      hooks,
+      :after_build_struct
+    )
+  end
+
+  @doc """
   Whether `module` is a compiled Ecto schema.
   """
   def ecto_schema?(module) do
@@ -254,10 +287,19 @@ defmodule FactoryMan.Codegen do
       @doc unquote(insert_struct_doc(struct_module, factory_name))
       def unquote(insert_struct_fn)(%unquote(struct_module){} = struct, repo_insert_opts \\ [])
           when is_list(repo_insert_opts) do
-        struct
-        |> then(&FactoryMan.get_hook_handler(unquote(hooks), :before_insert).(&1))
-        |> unquote(repo).insert!(repo_insert_opts)
-        |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_insert).(&1))
+        unquote(
+          hook_pipe(
+            quote(
+              do:
+                unquote(repo).insert!(
+                  unquote(hook_pipe(quote(do: struct), hooks, :before_insert)),
+                  repo_insert_opts
+                )
+            ),
+            hooks,
+            :after_insert
+          )
+        )
       end
     end
   end

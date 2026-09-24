@@ -820,9 +820,9 @@ defmodule MyApp.Factory.Events do
 end
 ```
 
-A module-level hook is better for behavior shared by every factory in that module. Parent, child,
-and factory hooks merge by hook name, with the more specific level taking precedence when the same
-hook is configured again.
+A module-level hook is better for behavior shared by every factory in that module. Hooks must be
+remote captures (`&__MODULE__.my_hook/1`); anything else, such as an anonymous function, raises at
+compile time.
 
 For a normal struct factory, the build path is:
 
@@ -840,6 +840,47 @@ params validation
 An insert continues with `before_insert`, the repo insert, and `after_insert`. This is also why
 `insert_*_struct` is preferable to a direct repo call after editing a built struct: it keeps the
 insert hooks in the path.
+
+### Chain a factory hook with an inherited one
+
+A hook set on a factory is chained with the hooks it inherits from its modules. The order is
+onion-style, like middleware: the parent wraps the child. A parent's `before_*` hook runs first,
+and a parent's `after_*` hook runs last.
+
+With the `reset_associations/1` parent from "Share configuration with `extends:`", a factory-level
+`after_insert` runs before the reset. In the `MyApp.Factory.Blog` module from above:
+
+```elixir
+deffactory post(params \\ %{}),
+  struct: Post,
+  hooks: [after_insert: &__MODULE__.add_comment/1] do
+  base_params = %{title: FactoryMan.sequence("post")}
+
+  Map.merge(base_params, params)
+end
+
+def add_comment(post) do
+  insert_comment(%{post: post})
+  post
+end
+```
+
+`insert_post/0` runs `add_comment/1`, then `reset_associations/1`, so the result still resembles a
+freshly queried record. To run a hook after the inherited ones instead (for example, to preload
+the comments onto the result), place it explicitly:
+
+```elixir
+hooks: [after_insert: {&__MODULE__.preload_comments/1, :after_parent}]
+```
+
+The placements are `:before_parent`, `:after_parent`, and `:replace_parent`. To switch off an
+inherited hook for one factory, replace it with an identity function:
+
+```elixir
+hooks: [after_insert: {&Function.identity/1, :replace_parent}]
+```
+
+`__factory_man__(:opts, :post)` shows each hook name's resolved list in run order.
 
 ## Handle specialized construction
 

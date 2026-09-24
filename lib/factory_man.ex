@@ -230,7 +230,7 @@ defmodule FactoryMan do
 
   - `:repo` - Ecto repo for database operations
   - `:extends` - Parent factory module to inherit configuration from
-  - `:hooks` - Hooks applied to all factories in the module
+  - `:hooks` - Hooks applied to all factories in the module, chained with inherited hooks
 
   **Factory-level** (set with `deffactory`):
 
@@ -239,7 +239,7 @@ defmodule FactoryMan do
   - `:body` - What the factory body returns: `:params` (default, a params map) or `:struct`
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
-  - `:hooks` - Merged with module-level hooks
+  - `:hooks` - Chained with the module-level hooks (see Hook Order below)
   - `:repo` - Overrides the module-level repo for this factory
   - `:assocs` - Keyword list mapping Ecto association keys to builders (see Associations above).
     Factory-level only.
@@ -331,13 +331,50 @@ defmodule FactoryMan do
   | `:before_insert`       | struct       | struct       | Modify struct just before database insertion                    |
   | `:after_insert`        | struct       | struct       | Post-process after insertion (e.g. reset associations)          |
 
-  ### Hook Precedence
+  A hook is a 1-arity remote capture such as `&__MODULE__.my_hook/1` or `&MyApp.Hooks.my_hook/1`.
+  Hooks are compiled into the generated functions, so anything that is not a remote capture, such
+  as an anonymous function (`fn ... end`), raises at compile time.
 
-  Hooks can be set at three levels. Later levels override earlier ones for the same hook key:
+  ### Hook Order
+
+  Hooks can be set at three levels, and a hook set at a lower level is chained with the hooks it
+  inherits instead of replacing them:
 
   1. **Parent module** - `use FactoryMan, hooks: [...]`
-  2. **Child module** - `use FactoryMan, extends: Parent, hooks: [...]`
+  2. **Child module** - `use FactoryMan, extends: Parent, hooks: [...]` (any number of levels)
   3. **Individual factory** - `deffactory name(params), hooks: [...]`
+
+  The order is onion-style, like middleware: the parent wraps the child. For a `before_*` hook
+  the parent's runs first, and for an `after_*` hook the parent's runs last. A parent's
+  `after_insert` that resets associations therefore sees the final struct, after any factory
+  `after_insert`.
+
+  To place a hook explicitly, pass `{hook, placement}`:
+
+  | Placement         | Runs                                  | Default for       |
+  | ----------------- | ------------------------------------- | ----------------- |
+  | `:after_parent`   | After the inherited hooks             | `before_*` hooks  |
+  | `:before_parent`  | Before the inherited hooks            | `after_*` hooks   |
+  | `:replace_parent` | Instead of all of the inherited hooks | -                 |
+
+  A plain hook uses the default placement for its hook name. "Parent" means everything inherited
+  for that hook name, from every level above. Each level is resolved against the list built so
+  far. For example, with `after_insert`:
+
+  ```elixir
+  # Parent module:       after_insert: &P.hook/1                      -> [P]
+  # Child module:        after_insert: {&C.hook/1, :after_parent}     -> [P, C]
+  # Factory:             after_insert: &F.hook/1                      -> [F, P, C]
+  ```
+
+  Each hook receives the previous hook's result. The same hook set at two levels runs twice. On
+  a module with no parent, a placement behaves like a plain hook. To switch off an inherited hook
+  for one factory, replace it with an identity function:
+  `hooks: [after_insert: {&Function.identity/1, :replace_parent}]`.
+
+  `__factory_man__(:opts)` and `__factory_man__(:opts, name)` show each hook name's resolved list,
+  in run order. Unknown hook names, a hook name set twice at one level, and invalid hook values
+  raise.
 
   ### Examples
 
@@ -605,18 +642,15 @@ defmodule FactoryMan do
       # Each variant's root factory, so the recursion guard treats a variant and its base as one
       Module.register_attribute(__MODULE__, :factory_man_variant_roots, accumulate: true)
 
-      parent_factory_opts =
+      parent_opts =
         case unquote(opts)[:extends] do
-          nil ->
-            # Use opts from current factory only
-            unquote(opts)
-
-          extends ->
-            # Extend base factory opts
-            parent_opts = extends.__info__(:attributes)[:parent_factory_opts] || []
-
-            FactoryMan._merge_opts(parent_opts, unquote(opts))
+          nil -> []
+          extends -> extends.__info__(:attributes)[:parent_factory_opts] || []
         end
+
+      # Resolved against an empty parent for a root module too, so every module stores its hooks
+      # as lists of functions in run order
+      parent_factory_opts = FactoryMan._merge_opts(parent_opts, unquote(opts))
 
       # Put factory module options into a module attribute that can be read by the child factories
       Module.register_attribute(__MODULE__, :parent_factory_opts, persist: true)
@@ -687,7 +721,8 @@ defmodule FactoryMan do
   - `:body` - What the factory body returns: `:params` (default, a params map) or `:struct`
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
-  - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
+  - `:hooks` - A keyword list of hook functions to apply at different stages, chained with the
+    module's hooks (see Hooks section)
   - `:repo` - Overrides the module-level repo for this factory
   - `:assocs` - A keyword list mapping Ecto association keys to builders: a 1-arity function, a
     2-arity function `(params, factory_params)`, or `{builder, options}` with `default: value`
@@ -771,11 +806,15 @@ defmodule FactoryMan do
           ] do
       FactoryMan._reject_non_literal_assocs!(opts)
 
+      subject = "factory :#{factory_name} in #{inspect(caller_module)}"
+
       FactoryMan._validate_opts!(
         opts,
         [:struct, :insert?, :body, :hooks, :strict, :repo, :assocs],
-        "factory :#{factory_name} in #{inspect(caller_module)}"
+        subject
       )
+
+      FactoryMan._validate_hooks!(opts, subject)
 
       parent_factory_opts = Module.get_attribute(__MODULE__, :parent_factory_opts)
 
@@ -829,13 +868,15 @@ defmodule FactoryMan do
         def unquote({build_fn, [], [arg_ast_no_default]}) do
           FactoryMan.Associations.track_factory(__MODULE__, unquote(factory_name), fn ->
             unquote(user_var) =
-              FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(
-                unquote(user_var)
-              )
+              unquote(FactoryMan.Codegen.hook_pipe(user_var, hooks, :before_build_params))
 
-            unquote(block)
-            |> FactoryMan.evaluate_lazy_attributes()
-            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
+            unquote(
+              FactoryMan.Codegen.hook_pipe(
+                quote(do: FactoryMan.evaluate_lazy_attributes(unquote(block))),
+                hooks,
+                :after_build_params
+              )
+            )
           end)
         end
 
@@ -866,18 +907,13 @@ defmodule FactoryMan do
               )
 
               unquote(user_var) =
-                FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(
-                  unquote(user_var)
-                )
+                unquote(FactoryMan.Codegen.hook_pipe(user_var, hooks, :before_build_params))
 
               unquote(association_step)
 
-              unquote(block)
-              |> FactoryMan.evaluate_lazy_attributes()
-              |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
-              |> then(&FactoryMan.get_hook_handler(unquote(hooks), :before_build_struct).(&1))
-              |> then(&struct!(unquote(merged_opts[:struct]), &1))
-              |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
+              unquote(
+                FactoryMan.Codegen.build_struct_pipeline(block, hooks, merged_opts[:struct])
+              )
             end)
           end
         else
@@ -893,9 +929,13 @@ defmodule FactoryMan do
 
               unquote(association_step)
 
-              unquote(block)
-              |> FactoryMan.evaluate_lazy_attributes()
-              |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
+              unquote(
+                FactoryMan.Codegen.hook_pipe(
+                  quote(do: FactoryMan.evaluate_lazy_attributes(unquote(block))),
+                  hooks,
+                  :after_build_struct
+                )
+              )
             end)
           end
         end
@@ -1471,12 +1511,6 @@ defmodule FactoryMan do
   end
 
   @doc false
-  def fallback_hook_handler(value), do: value
-
-  @doc false
-  def get_hook_handler(hooks, hook), do: hooks[hook] || (&FactoryMan.fallback_hook_handler/1)
-
-  @doc false
   def _validate_params!(params, _strict, _struct_module, factory_name) when not is_map(params) do
     raise ArgumentError,
           "expected a params map for factory :#{factory_name}, got: #{inspect(params)}"
@@ -1530,11 +1564,10 @@ defmodule FactoryMan do
               "a single schema, so assocs: is set per factory, not per module."
     end
 
-    _validate_opts!(
-      opts,
-      [:repo, :extends, :hooks, :body, :strict, :insert?, :struct],
-      "use FactoryMan in #{inspect(module)}"
-    )
+    subject = "use FactoryMan in #{inspect(module)}"
+
+    _validate_opts!(opts, [:repo, :extends, :hooks, :body, :strict, :insert?, :struct], subject)
+    _validate_hooks!(opts, subject)
   end
 
   @doc false
@@ -1555,17 +1588,108 @@ defmodule FactoryMan do
     end
   end
 
+  # Each hook name and where a plain hook function runs relative to the inherited hooks. The
+  # parent wraps the child: its `before_*` hooks run first and its `after_*` hooks run last.
+  @hook_default_placements [
+    before_build_params: :after_parent,
+    after_build_params: :before_parent,
+    before_build_struct: :after_parent,
+    after_build_struct: :before_parent,
+    before_insert: :after_parent,
+    after_insert: :before_parent
+  ]
+
+  @hook_placements [:before_parent, :after_parent, :replace_parent]
+
+  @doc false
+  def _validate_hooks!(opts, subject) do
+    hooks = Keyword.get(opts, :hooks, [])
+
+    unless is_list(hooks) and Keyword.keyword?(hooks) do
+      raise ArgumentError,
+            "expected :hooks for #{subject} to be a keyword list, got: #{inspect(hooks)}"
+    end
+
+    hook_names = Keyword.keys(hooks)
+
+    case Enum.uniq(hook_names) -- Keyword.keys(@hook_default_placements) do
+      [] ->
+        :ok
+
+      unknown ->
+        raise ArgumentError,
+              "unknown hooks #{inspect(unknown)} for #{subject}. " <>
+                "Allowed hooks: #{inspect(Keyword.keys(@hook_default_placements))}"
+    end
+
+    case hook_names -- Enum.uniq(hook_names) do
+      [] ->
+        :ok
+
+      duplicates ->
+        raise ArgumentError,
+              "duplicate hooks #{inspect(Enum.uniq(duplicates))} for #{subject}. " <>
+                "Set each hook once per level."
+    end
+
+    Enum.each(hooks, fn {hook_name, value} -> validate_hook!(hook_name, value, subject) end)
+  end
+
+  # Hooks are compiled into the generated functions as remote calls, so only remote captures are
+  # accepted. Other functions (anonymous functions, local captures) have no code form to compile.
+  defp validate_hook!(hook_name, value, subject) do
+    {fun, placement} = split_hook(hook_name, value)
+
+    unless is_function(fun, 1) and Function.info(fun, :type) == {:type, :external} do
+      raise ArgumentError,
+            "invalid hook #{inspect(hook_name)} for #{subject}: #{inspect(value)}. " <>
+              "Expected a 1-arity remote capture such as `&MyModule.my_hook/1`, " <>
+              "or `{capture, placement}`."
+    end
+
+    if placement not in @hook_placements do
+      raise ArgumentError,
+            "invalid placement #{inspect(placement)} for hook #{inspect(hook_name)} for " <>
+              "#{subject}. Expected one of: #{inspect(@hook_placements)}."
+    end
+  end
+
+  defp split_hook(_hook_name, {fun, placement}), do: {fun, placement}
+  defp split_hook(hook_name, fun), do: {fun, Keyword.fetch!(@hook_default_placements, hook_name)}
+
   @doc false
   def _merge_opts(parent_opts, child_opts) do
-    merged_hooks =
-      Keyword.merge(Keyword.get(parent_opts, :hooks, []), Keyword.get(child_opts, :hooks, []))
+    parent_hooks = Keyword.get(parent_opts, :hooks, [])
+    child_hooks = Keyword.get(child_opts, :hooks, [])
 
-    merged_opts = Keyword.merge(parent_opts, child_opts)
+    # Parent hooks have already been resolved into lists of functions in run order. Each child
+    # hook is placed relative to the inherited list.
+    merged_hooks =
+      Enum.flat_map(Keyword.keys(@hook_default_placements), fn hook_name ->
+        inherited = Keyword.get(parent_hooks, hook_name, [])
+
+        case place_hook(inherited, hook_name, child_hooks[hook_name]) do
+          [] -> []
+          resolved -> [{hook_name, resolved}]
+        end
+      end)
+
+    merged_opts = parent_opts |> Keyword.merge(child_opts) |> Keyword.delete(:hooks)
 
     if merged_hooks == [] do
       merged_opts
     else
       Keyword.put(merged_opts, :hooks, merged_hooks)
+    end
+  end
+
+  defp place_hook(inherited, _hook_name, nil = _child_value), do: inherited
+
+  defp place_hook(inherited, hook_name, child_value) do
+    case split_hook(hook_name, child_value) do
+      {fun, :before_parent} -> [fun | inherited]
+      {fun, :after_parent} -> inherited ++ [fun]
+      {fun, :replace_parent} -> [fun]
     end
   end
 

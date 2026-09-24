@@ -43,6 +43,7 @@ test/
   factory_man/
     assoc_test.exs
     extends_test.exs
+    hooks_test.exs
     lazy_evaluation_test.exs
     sequence_test.exs
     strict_params_test.exs
@@ -142,6 +143,13 @@ build_user_params (calls build_user_struct internally):
 insert_user (calls build_user_struct internally):
   -> before_insert -> Repo.insert!() -> after_insert
 ```
+
+Hooks chain across levels (parent module -> child module -> factory) in onion order, like
+middleware: a parent's `before_*` hooks run first, its `after_*` hooks run last. Place a hook
+explicitly with `{hook, :before_parent | :after_parent | :replace_parent}`. Hooks must be 1-arity
+remote captures (`&__MODULE__.my_hook/1`); anything else (e.g. an anonymous function) raises. Switch
+off an inherited hook with `{&Function.identity/1, :replace_parent}`. Reflection
+(`__factory_man__(:opts, name)`) shows each hook name's resolved list in run order.
 
 ### Common Anti-Patterns
 

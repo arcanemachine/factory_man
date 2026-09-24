@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - Unreleased
+
+### Added
+
+- Hook placements: a hook can be set as `{hook, :before_parent}`, `{hook, :after_parent}`, or
+  `{hook, :replace_parent}` to run before, after, or instead of the hooks it inherits.
+- Hook names, duplicate hook names at one level, and hook values are validated at compile time.
+  A hook must be a 1-arity remote capture; anything else, such as an anonymous function, raises.
+
+### Changed
+
+- **Breaking:** A hook set at a lower level (child module or factory) is chained with the
+  inherited hooks of the same name instead of replacing them. The order is onion-style: a
+  parent's `before_*` hooks run first and its `after_*` hooks run last.
+- **Breaking:** `__factory_man__(:opts)` and `__factory_man__(:opts, name)` hold each hook name's
+  resolved list of functions, in run order.
+- Hooks are compiled into the generated functions as direct calls, with no runtime lookup. A hook
+  that points at a missing function is reported by a compile-time warning instead of failing at
+  runtime.
+
 ## [0.14.0] - 2026-09-23
 
 ### Added
