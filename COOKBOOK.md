@@ -287,17 +287,76 @@ assert user.role == "owner"
 ```
 
 That behavior is useful for defaults. If the name promises an invariant that callers must not
-contradict, validate it explicitly as shown in [Validated presets](#validated-presets).
+contradict, force the value or validate it explicitly (see
+[Build presets that keep their promises](#build-presets-that-keep-their-promises)).
 
-Variants may build on other variants:
+### Combine variants for one test
+
+Pass `variants:` to any generated function to apply several variants in one build:
 
 ```elixir
-defvariant senior(params \\ %{}), for: :admin_user do
+MyApp.Factory.build_user_struct(%{username: "alice"}, variants: [:admin, :confirmed])
+MyApp.Factory.insert_user(%{}, variants: [:admin, :confirmed])
+```
+
+List variants by the name in their `defvariant` (`:admin`, not `:admin_user`). The caller's params
+win, and a later variant wins over an earlier one:
+
+```elixir
+user = MyApp.Factory.build_user_struct(%{}, variants: [:admin, :guest])
+assert user.role == "guest"
+```
+
+`insert_*` takes one option list: FactoryMan uses `:variants`, and every other option goes to
+`Repo.insert!/2` unchanged, as in `insert_user(%{}, variants: [:admin], returning: true)`.
+
+### Build on another variant
+
+When a variant always includes another, declare it with `extends:`. The variant wins over the
+variants it extends:
+
+```elixir
+defvariant senior(params \\ %{}), for: :user, extends: [:admin] do
   Map.merge(%{display_name: "Senior administrator"}, params)
 end
 
-MyApp.Factory.build_senior_admin_user_struct()
+user = MyApp.Factory.build_senior_user_struct()
+assert user.role == "admin"
 ```
+
+A variant that only extends others names a combination that many tests use:
+
+```elixir
+defvariant confirmed_admin(params \\ %{}), for: :user, extends: [:admin, :confirmed] do
+  params
+end
+
+MyApp.Factory.build_confirmed_admin_user_struct()
+```
+
+`for:` always names the base factory, and each extended variant must be defined earlier in the
+same module.
+
+### Choose defaults or forced values
+
+Which side of `Map.merge/2` a variant puts `params` on decides who wins when the caller passes the
+same key. Use defaults for convenience presets, and forced values for presets whose name is a
+promise:
+
+```elixir
+# Defaults: the caller can override the role
+defvariant admin(params \\ %{}), for: :user do
+  Map.merge(%{role: "admin"}, params)
+end
+
+# Forced: a banned user is always banned, whatever the caller passes
+defvariant banned(params \\ %{}), for: :user do
+  Map.merge(params, %{banned: true})
+end
+```
+
+In a `variants:` list, a variant that forces a value wins over the caller and over every variant
+after it in the list.
 
 Use `as:` when the combined name would be awkward:
 
@@ -619,6 +678,46 @@ assocs: [
 one row, insert the record first and pass it for both keys, or add a `before_insert` hook that
 inserts it once and puts the persisted record into both fields.
 
+The same happens across a list insert: each item inserts the shared built record again.
+
+```elixir
+# Each post inserts the built author again, so a unique column conflicts on the second post
+MyApp.Factory.Blog.insert_post_list(2, %{author: MyApp.Factory.Accounts.build_user_struct()})
+
+# The author is inserted once and shared by both posts
+MyApp.Factory.Blog.insert_post_list(2, %{author: MyApp.Factory.Accounts.insert_user()})
+```
+
+### Get foreign keys into params
+
+`build_*_params` drops a `belongs_to` association and sets its foreign key only when the associated
+record has been inserted. With the default builder, the author is only built, so the params have no
+author ID:
+
+```elixir
+MyApp.Factory.Blog.build_post_params()
+# %{title: "post0", author_id: nil, ...}
+```
+
+For a changeset or controller test that needs a real foreign key, pass an inserted record:
+
+```elixir
+MyApp.Factory.Blog.build_post_params(%{author: MyApp.Factory.Accounts.insert_user()})
+# %{title: "post1", author_id: 42, ...}
+```
+
+When many tests need it, declare a variant whose builder inserts. The base factory still only
+builds, and the inserted author goes through the user factory's insert hooks:
+
+```elixir
+defvariant persisted(params \\ %{}), for: :post, assocs: [author: &Accounts.insert_user/1] do
+  params
+end
+
+MyApp.Factory.Blog.build_persisted_post_params()
+# %{title: "post2", author_id: 43, ...}
+```
+
 ### Insert a dependency when the database requires it
 
 Sometimes the schema only needs a foreign key and the related row must already exist. Make that
@@ -694,9 +793,10 @@ struct, params, or insert functions because there is no schema to provide those 
 
 ## Catch input mistakes with strict params
 
-A misspelled key in a merge-style factory normally fails later during struct construction. A direct
-struct factory may ignore it entirely. Opt in to strict params when you want the factory boundary to
-report the mistake immediately:
+Params can be lost in two ways: a caller misspells a key, or a factory body drops a key it was
+given. A misspelled key in a merge-style factory normally fails later during struct construction,
+and a direct struct factory may ignore it entirely. A body that forgets its final merge ignores the
+caller's values without any error. Opt in to strict params to catch both at the factory:
 
 ```elixir
 deffactory user(params \\ %{}), struct: User, strict: true do
@@ -716,14 +816,30 @@ MyApp.Factory.build_user_struct(%{usernme: "alice"})
 # ** (ArgumentError) unknown params [:usernme] for strict factory :user ...
 ```
 
-Strict validation also applies through params builders, inserts, list builders, and variants.
-Set it once for a factory module when that is the desired default:
+A body that ignores or changes a param it was given fails too:
 
 ```elixir
-defmodule MyApp.Factory.Accounts do
-  use FactoryMan, extends: MyApp.Factory, strict: true
+deffactory user(params \\ %{}), struct: User, strict: true do
+  %{username: FactoryMan.sequence("user")}
+end
 
-  # Account factories are strict unless one overrides the option.
+MyApp.Factory.build_user_struct(%{username: "alice"})
+# ** (ArgumentError) strict factory :user in MyApp.Factory ignored or changed params it was given:
+#
+#      :username - given "alice", built "user0"
+#    ...
+```
+
+That check compares each field the body received with the body's result. A map field passes when
+every key the caller gave comes through unchanged, so a body may fill in the rest of a map. Lazy
+function values and association keys are not compared.
+
+Strict validation also applies through params builders, inserts, list builders, and variants.
+Turn it on in the base factory, so every child factory is strict unless one overrides the option:
+
+```elixir
+defmodule MyApp.Factory do
+  use FactoryMan, repo: MyApp.Repo, strict: true
 end
 ```
 
@@ -743,8 +859,19 @@ deffactory user_from_domain(params \\ %{}),
 end
 ```
 
-Keys outside the struct fields and the allowlist still raise. Strict params are ignored for
-non-struct factories because those factories have no struct field set to validate against.
+`allow:` also covers a field that the body changes on purpose, such as a value it normalizes:
+
+```elixir
+deffactory account(params \\ %{}), struct: Account, strict: [allow: [:email]] do
+  %{email: "user@example.com"}
+  |> Map.merge(params)
+  |> Map.update!(:email, &String.downcase/1)
+end
+```
+
+Keys in `allow:` are not checked at all. Other keys outside the struct fields still raise, and
+other fields must still come through the body unchanged. Strict params are ignored for non-struct
+factories because those factories have no struct field set to validate against.
 
 ## Organize a growing factory suite
 
@@ -796,8 +923,21 @@ The `after_insert` hook resets loaded associations so an inserted result resembl
 by a fresh query. This prevents tests from accidentally depending on associations that happened to
 be present during construction.
 
-Inheritance chains may have more than one level, and a child may override inherited options. Keep
-the parent focused on shared behavior; domain-specific factory definitions belong in the child
+Inheritance chains may have more than one level, and a child may override inherited options:
+
+```elixir
+defmodule MyApp.Factory.Reporting do
+  # Inherits the hooks, and uses another repo
+  use FactoryMan, extends: MyApp.Factory, repo: MyApp.ReportingRepo
+end
+
+defmodule MyApp.Factory.Reporting.Exports do
+  # Inherits MyApp.Factory.Reporting's resolved options, including its repo
+  use FactoryMan, extends: MyApp.Factory.Reporting
+end
+```
+
+Keep the parent focused on shared behavior; domain-specific factory definitions belong in the child
 modules that use them.
 
 ### Use hooks for cross-cutting behavior
@@ -822,7 +962,11 @@ end
 
 A module-level hook is better for behavior shared by every factory in that module. Hooks must be
 remote captures (`&__MODULE__.my_hook/1`); anything else, such as an anonymous function, raises at
-compile time.
+compile time. To run several functions at one hook, give a list; they run in order:
+
+```elixir
+hooks: [after_insert: [&__MODULE__.reset_associations/1, &__MODULE__.log_insert/1]]
+```
 
 For a normal struct factory, the build path is:
 
@@ -831,6 +975,7 @@ params validation
 → before_build_params
 → assocs: resolution
 → factory body and lazy evaluation
+→ strict params check (with strict: true)
 → after_build_params
 → before_build_struct
 → struct!/2
@@ -873,14 +1018,42 @@ the comments onto the result), place it explicitly:
 hooks: [after_insert: {&__MODULE__.preload_comments/1, :after_parent}]
 ```
 
-The placements are `:before_parent`, `:after_parent`, and `:replace_parent`. To switch off an
-inherited hook for one factory, replace it with an identity function:
+The placements are `:before_parent`, `:after_parent`, and `:replace_parent`. A placement applies
+to a whole list of hooks. To switch off the inherited hooks for one factory, replace them with an
+empty list:
 
 ```elixir
-hooks: [after_insert: {&Function.identity/1, :replace_parent}]
+hooks: [after_insert: {[], :replace_parent}]
 ```
 
 `__factory_man__(:opts, :post)` shows each hook name's resolved list in run order.
+
+### Cast values before insert
+
+FactoryMan inserts values exactly as the factory builds them, so a value of the wrong type (e.g.
+`"42"` for an integer field) fails in the repo. To convert values to their field types first, as a
+changeset would, cast them in a `before_insert` hook:
+
+```elixir
+defmodule MyApp.Factory do
+  use FactoryMan, repo: MyApp.Repo, hooks: [before_insert: &__MODULE__.cast_fields/1]
+
+  def cast_fields(%schema{} = struct) do
+    fields = schema.__schema__(:fields) -- schema.__schema__(:embeds)
+
+    schema
+    |> struct()
+    |> Ecto.Changeset.cast(Map.take(struct, fields), fields, empty_values: [])
+    |> Ecto.Changeset.apply_action!(:insert)
+    |> then(&Map.merge(struct, Map.take(&1, fields)))
+  end
+end
+```
+
+A value that cannot be cast raises an `Ecto.InvalidChangesetError` that names the field. The hook
+casts the struct's own fields only, not its associations or embeds. It does not run your schema's
+`changeset/2` (which would also validate): a required foreign key that an association fills in on
+insert would fail validation before the insert.
 
 ## Handle specialized construction
 
@@ -956,8 +1129,25 @@ Use direct struct bodies sparingly. A normal params body is easier to extend, co
 
 ## Build presets that keep their promises
 
-Variants are ideal for caller-overridable defaults. Two more specialized patterns help when a preset
-must transform a finished value or enforce an invariant.
+Variants are ideal for caller-overridable defaults. Three more specialized patterns help when a
+preset must force a value, transform a finished value, or enforce an invariant.
+
+### Forced values
+
+When a preset's name is a promise that a caller should not be able to break by accident, merge the
+preset's values over the params instead of under them:
+
+```elixir
+defvariant banned(params \\ %{}), for: :user do
+  Map.merge(params, %{banned: true})
+end
+
+MyApp.Factory.build_banned_user_struct(%{banned: false}).banned
+# true
+```
+
+The forced value also wins over every variant after it in a `variants:` list. Use this form
+sparingly: a caller cannot override the value, even on purpose.
 
 ### Post-build presets
 
@@ -1029,6 +1219,8 @@ end
 
 Checking `__factory_man__(:factories)` before constructing the function name limits dispatch to
 registered factories. Variants appear under their full registered names.
+`__factory_man__(:variants, :user)` lists a factory's variants by the names that `variants:`
+accepts, e.g. to build every variant of a factory in a test.
 
 For debugging, inspect the resolved options at module or factory level:
 
@@ -1044,7 +1236,9 @@ does not appear in these options.
 ## Habits that keep factories easy to use
 
 - **Merge caller params last.** `Map.merge(base_params, params)` makes defaults predictable and
-  keeps tests in control.
+  keeps tests in control. Force a value only in a preset whose name promises it.
+- **Turn on `strict: true` in the base factory.** It catches misspelled keys and params a body
+  ignores, in every factory that extends it.
 - **Pass maps to struct factories.** Keyword lists are appropriate only when the factory itself
   accepts and returns keyword-list data.
 - **Use generated names.** A struct factory named `user` generates `build_user_struct`,
@@ -1062,6 +1256,6 @@ does not appear in these options.
 - **Give self-referential associations `default: nil`.** A default build that starts again inside
   itself raises instead of recursing forever.
 - **Reset sequences only when exact positions matter.** Most tests should assert behavior rather
-  than the counter value.
+  than the counter value. In async tests, reset only the sequence names that the test uses.
 - **Keep the cookbook for recipes and the API reference for exhaustive semantics.** When an edge
   case matters, consult the [`FactoryMan` module documentation](https://hexdocs.pm/factory_man/FactoryMan.html).

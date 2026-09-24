@@ -37,7 +37,8 @@ defmodule FactoryMan.MixProject do
   defp package do
     [
       name: :factory_man,
-      files: ~w(.formatter.exs CHANGELOG.md COOKBOOK.md LICENSE.md README.md mix.exs lib),
+      files:
+        ~w(.formatter.exs CHANGELOG.md CHEATSHEET.cheatmd COOKBOOK.md LICENSE.md README.md mix.exs usage-rules.md lib),
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
       maintainers: ["Nicholas Moen"]
@@ -69,9 +70,11 @@ defmodule FactoryMan.MixProject do
       extras: [
         "README.md": [title: "README"],
         "COOKBOOK.md": [title: "Cookbook"],
+        "CHEATSHEET.cheatmd": [title: "Cheat Sheet"],
+        "usage-rules.md": [title: "Usage Rules"],
         "CHANGELOG.md": [title: "Changelog"]
       ],
-      formatters: ["html"],
+      formatters: ["html", "markdown"],
       main: "readme",
       source_ref: "v#{@version}",
       skip_undefined_reference_warnings_on: ["CHANGELOG.md"],

@@ -1,0 +1,207 @@
+# Cheat Sheet
+
+## Generated functions
+{: .col-2}
+
+### Struct factory (`deffactory user(params \\ %{}), struct: User`)
+
+| Function                              | Returns                        |
+| ------------------------------------- | ------------------------------ |
+| `build_user_struct/0,1,2`             | `%User{}`, not persisted       |
+| `build_user_params/0,1,2`             | Clean params map (atom keys)   |
+| `build_user_string_params/0,1,2`      | Clean params map (string keys) |
+| `insert_user/0,1,2`                   | Inserted `%User{}`             |
+| `insert_user_struct/1,2`              | Inserts an already-built struct |
+| `build_user_struct_list/1,2,3`        | `[%User{}, ...]`               |
+| `build_user_params_list/1,2,3`        | `[%{}, ...]`                   |
+| `build_user_string_params_list/1,2,3` | `[%{"" => ...}, ...]`          |
+| `insert_user_list/1,2,3`              | `[%User{}, ...]`, inserted     |
+
+Insert functions need a repo, a table-backed Ecto schema, and `insert?` not `false`. Embedded
+schemas get no insert functions.
+
+### Non-struct factory (`deffactory payload(params \\ %{})`)
+
+| Function              | Returns                   |
+| --------------------- | ------------------------- |
+| `build_payload/0,1,2` | Whatever the body returns |
+| `build_payload_list/1,2,3` | A list of them       |
+
+### Variant (`defvariant admin(...), for: :user`)
+
+| Function                    | Notes                              |
+| --------------------------- | ---------------------------------- |
+| `build_admin_user_struct/0,1,2` | `as: :boss` renames to `build_boss_struct` |
+| `insert_admin_user/0,1,2`   | Inserts through the base pipeline  |
+
+Every function of the base factory has a variant counterpart.
+
+### Which function?
+
+| Need                                        | Use                  |
+| ------------------------------------------- | -------------------- |
+| A changeset or function that expects a map  | `build_*_params`     |
+| Controller or JSON input                    | `build_*_string_params` |
+| A struct to nest in another, no DB row      | `build_*_struct`     |
+| A row a query, constraint, or FK needs      | `insert_*`           |
+| Insert a struct you edited, with hooks      | `insert_*_struct`    |
+
+## Options
+{: .col-2}
+
+### `use FactoryMan`
+
+| Option     | Meaning                                    |
+| ---------- | ------------------------------------------ |
+| `:repo`    | Ecto repo for inserts                      |
+| `:extends` | Parent factory module to inherit from      |
+| `:hooks`   | Hooks for every factory in the module      |
+| `:strict`  | Default `:strict` for the module           |
+| `:body`    | Default `:body` for the module             |
+
+### `deffactory`
+
+| Option     | Meaning                                              |
+| ---------- | ---------------------------------------------------- |
+| `:struct`  | Struct or Ecto schema to build                       |
+| `:assocs`  | Association builders (Ecto schemas only)             |
+| `:strict`  | `true`, `false`, or `[allow: [keys]]`                |
+| `:body`    | `:params` (default) or `:struct`                     |
+| `:hooks`   | Chained with the module's hooks                      |
+| `:repo`    | Overrides the module's repo                          |
+| `:insert?` | `false` skips insert functions                       |
+
+### `defvariant`
+
+| Option     | Meaning                                              |
+| ---------- | ---------------------------------------------------- |
+| `:for`     | The base factory (required, must be a factory)       |
+| `:extends` | Variants of the same factory to build on             |
+| `:as`      | Name for the generated functions                     |
+| `:assocs`  | Association builders, resolved before the variant body |
+
+### Function options
+
+| Function         | Options                                           |
+| ---------------- | ------------------------------------------------- |
+| `build_*`        | `variants: [...]` only                            |
+| `insert_*`       | `variants: [...]`; every other option goes to `Repo.insert!/2` |
+| `insert_*_struct`| Repo options only                                 |
+
+## Variants
+{: .col-2}
+
+### Precedence (defaults form: `Map.merge(defaults, params)`)
+
+| Wins over               | Example                                        |
+| ----------------------- | ---------------------------------------------- |
+| Caller over variants    | `build_user_struct(%{role: "owner"}, variants: [:admin])` → `"owner"` |
+| Later over earlier      | `variants: [:admin, :moderator]` → `"moderator"` |
+| Variant over what it extends | `extends: [:admin]`, whatever the list order |
+
+A variant written `Map.merge(params, forced)` forces its values: it wins over the caller and over
+every variant after it in the list.
+
+### Rules
+
+| Rule                | Detail                                           |
+| ------------------- | ------------------------------------------------ |
+| Names               | List variants by their `defvariant` name (`:admin`) |
+| Own functions       | `build_admin_user_struct(p, variants: [:x])` = `build_user_struct(p, variants: [:admin, :x])` |
+| Execution order     | From the last variant to the base factory        |
+| Duplicates          | Each variant is applied once, at its first position |
+| Definition order    | A variant is defined after the variants it extends |
+| Introspection       | `__factory_man__(:variants, :user)`              |
+
+## Strict params
+{: .col-2}
+
+### `strict: true` checks
+
+| Check                     | When                           | Catches                          |
+| ------------------------- | ------------------------------ | -------------------------------- |
+| Unknown keys              | Before hooks and the body      | `%{usernme: "x"}`                |
+| Ignored or changed params | After the body and lazy values | A body that forgets its merge    |
+
+### What the second check compares
+
+| Value given              | Kept when                                  |
+| ------------------------ | ------------------------------------------ |
+| Plain map                | Each of its keys is kept (recursively)     |
+| Anything else            | The built value is `==` to it              |
+| Function (lazy)          | Not checked                                |
+| Association key          | Not checked                                |
+| Key in `allow:`          | Not checked, by either check               |
+
+## Hooks
+{: .col-2}
+
+### Names and stages
+
+| Hook                   | Receives | Runs                             |
+| ---------------------- | -------- | -------------------------------- |
+| `:before_build_params` | params   | Before `assocs:` and the body    |
+| `:after_build_params`  | params   | After the body and the strict check |
+| `:before_build_struct` | params   | Before `struct!/2`               |
+| `:after_build_struct`  | struct   | After the struct is built        |
+| `:before_insert`       | struct   | Before `Repo.insert!/2`          |
+| `:after_insert`        | struct   | After the insert                 |
+
+`body: :struct` skips the three params-stage hooks.
+
+### Forms and placements
+
+| Value                              | Meaning                                  |
+| ---------------------------------- | ---------------------------------------- |
+| `&M.hook/1`                        | One remote capture                       |
+| `[&M.a/1, &M.b/1]`                 | Several, run in order                    |
+| `{hooks, :before_parent}`          | Before the inherited hooks (default for `after_*`) |
+| `{hooks, :after_parent}`           | After the inherited hooks (default for `before_*`) |
+| `{hooks, :replace_parent}`         | Instead of the inherited hooks           |
+| `{[], :replace_parent}`            | Switches off the inherited hooks         |
+
+## Associations (`assocs:`)
+{: .col-2}
+
+### Builder forms
+
+| Form                                  | Meaning                                  |
+| ------------------------------------- | ---------------------------------------- |
+| `&build_user_struct/1`                | Builds an absent key with `%{}`          |
+| `fn params, factory_params -> ... end`| Also sees keys declared above it         |
+| `{builder, default: nil}`             | An absent key stays `nil`                |
+| `{builder, default: [%{...}]}`        | An absent list key is built from params  |
+| `{builder, required: true}`           | `nil` raises (singular keys only)        |
+
+### Caller values
+
+| Caller gives       | Singular         | Plural (list)          |
+| ------------------ | ---------------- | ---------------------- |
+| Key absent         | `default:` (`%{}`) | `default:` (`[]`)    |
+| `nil`              | `nil`            | Raises (use `[]`)      |
+| Params map         | Built            | Raises                 |
+| Struct             | Reused           | Raises                 |
+| List               | Raises           | Each item resolved     |
+
+## Sequences and reflection
+{: .col-2}
+
+### Sequences
+
+| Call                                               | Values                    |
+| -------------------------------------------------- | ------------------------- |
+| `FactoryMan.sequence("user")`                      | `"user0"`, `"user1"`, ... |
+| `FactoryMan.sequence(:email, &"u#{&1}@x.com")`     | Formatted counter         |
+| `FactoryMan.sequence(:role, ["a", "b"])`           | Cycles through the list   |
+| `FactoryMan.sequence(:n, &"#{&1}", start_at: 100)` | Starts at 100             |
+| `FactoryMan.Sequence.reset(:email)`                | Resets one (async-safe)   |
+| `FactoryMan.Sequence.reset()`                      | Resets all, for every test |
+
+### Reflection
+
+| Call                               | Returns                                  |
+| ---------------------------------- | ---------------------------------------- |
+| `__factory_man__(:opts)`           | The module's resolved options            |
+| `__factory_man__(:opts, :user)`    | A factory's or variant's merged options  |
+| `__factory_man__(:factories)`      | Factories and variants (full names)      |
+| `__factory_man__(:variants, :user)`| A factory's variant names                |

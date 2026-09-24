@@ -6,7 +6,11 @@ generates functions for building params, structs, and database records.
 Inspired by [ExMachina](https://hex.pm/packages/ex_machina), but with a different API and feature
 set.
 
-Looking for recipes? See the [Cookbook](COOKBOOK.md).
+- [Cookbook](COOKBOOK.md) - recipes, from a first factory to variants, associations, and hooks
+- [Cheat sheet](CHEATSHEET.cheatmd) - generated functions, options, and precedence rules at a glance
+- [Usage rules](usage-rules.md) - the rules for writing factories, for people and coding agents
+- [`FactoryMan` module documentation](https://hexdocs.pm/factory_man/FactoryMan.html) - the full
+  reference
 
 ## Installation
 
@@ -28,7 +32,8 @@ Define factories:
 
 ```elixir
 defmodule MyApp.Factory do
-  use FactoryMan, repo: MyApp.Repo
+  # `strict: true` raises on misspelled keys and on params a factory body ignores
+  use FactoryMan, repo: MyApp.Repo, strict: true
 
   alias MyApp.Accounts.User
   alias MyApp.Blog.{Post, Tag}
@@ -51,6 +56,10 @@ defmodule MyApp.Factory do
     base_params = %{role: "admin"}
 
     Map.merge(base_params, params)
+  end
+
+  defvariant confirmed(params \\ %{}), for: :user do
+    Map.merge(%{confirmed_at: fn -> DateTime.utc_now() end}, params)
   end
 
   deffactory tag(params \\ %{}), struct: Tag do
@@ -131,6 +140,10 @@ iex> Factory.build_admin_user_struct(%{username: "the_boss"})
 iex> Factory.insert_admin_user(%{username: "the_boss"})
 %User{id: 6, role: "admin", username: "the_boss", ...}
 
+# Combine variants in one build
+iex> Factory.build_user_struct(%{}, variants: [:admin, :confirmed])
+%User{id: nil, role: "admin", confirmed_at: ~U[2026-09-24 12:00:00.000000Z], ...}
+
 ## Struct-less factory functions
 
 # Build a struct-less factory item
@@ -159,78 +172,22 @@ You write one factory, and FactoryMan generates the rest:
 Factories without a `struct:` option are simpler: they generate `build_<name>` and
 `build_<name>_list`, and the body can return any value (maps, keyword lists, strings, ...).
 
-## Which Function Should I Use?
+## Organizing Factories
 
-- **`build_*_params`** - For testing changesets, passing to functions that expect maps, or when no
-  struct shape is needed.
-
-- **`build_*_struct`** - For setting association fields on other structs being built in memory. Use
-  when the record doesn't need to exist in the database yet.
-
-- **`insert_*`** - When a foreign key constraint requires the record to exist, or when the test
-  queries the database for it.
-
-## Extending factories
-
-### Child factories with `extends:`
-
-Use `extends:` to keep shared configuration, hooks, and helpers in a base factory while defining
-factories in focused child modules:
+Keep shared configuration (repo, hooks, `strict:`, helpers) in a base factory, and define
+factories in child modules that inherit it with `extends:`:
 
 ```elixir
-defmodule MyApp.Factory do
-  use FactoryMan,
-    # These options will be inherited by any child factories that extend the parent
-    repo: MyApp.Repo,
-    hooks: [after_insert: &__MODULE__.unset_assocs/1]
-
-  @doc "Unset all assocs from a given Ecto schema `struct`."
-  def unset_assocs(struct) do
-    Ecto.reset_fields(struct, struct.__struct__.__schema__(:associations))
-  end
-end
-
 defmodule MyApp.Factory.Accounts do
-  # The child factory uses `:extends` to inherit options from the parent factory
-  use FactoryMan,
-    extends: MyApp.Factory,
-    # Child factories can add their own options too
-    repo: MyApp.OtherRepo
+  use FactoryMan, extends: MyApp.Factory
 
-  alias MyApp.Accounts.User
-
-  # This factory inherits the post-insert hook, so its assocs will be unset after insert
-  deffactory user(params \\ %{}), struct: User do
-    base_params = %{username: FactoryMan.sequence("user")}
-
-    Map.merge(base_params, params)
+  deffactory user(params \\ %{}), struct: MyApp.Accounts.User do
+    Map.merge(%{username: FactoryMan.sequence("user")}, params)
   end
 end
-
-defmodule MyApp.Factory.Accounts.Admins do
-  use FactoryMan, extends: MyApp.Factory.Accounts
-end
 ```
 
-`MyApp.Factory.Accounts` overrides the parent's repo and still inherits its hooks and helpers.
-`MyApp.Factory.Accounts.Admins` inherits those resolved options, including the repo override. Any
-factory module can be extended again, so inheritance chains have no fixed depth.
-
-### Recommended project structure
-
-Keep the base factory focused on shared config (repo, hooks, helpers). Child factories use
-`extends:` to inherit that config, and mirror your application's context structure:
-
-```text
-test/support/
-  factory.ex                    # Base factory (config, hooks, shared helpers)
-  factory/
-    accounts.ex                 # MyApp.Factory.Accounts (extends MyApp.Factory)
-    accounts/
-      admins.ex                 # MyApp.Factory.Accounts.Admins (extends MyApp.Factory.Accounts)
-    blog.ex                     # MyApp.Factory.Blog (extends MyApp.Factory)
-    blog/comments.ex            # MyApp.Factory.Blog.Comments (extends MyApp.Factory)
-```
+See "Organize a growing factory suite" in the [Cookbook](COOKBOOK.md) for a recommended layout.
 
 ## Going Further
 
@@ -238,9 +195,10 @@ The full reference lives in the
 [`FactoryMan` module documentation](https://hexdocs.pm/factory_man/FactoryMan.html), including:
 
 - **Hooks** - transform data at each stage of the build/insert pipeline
-- **Variants** (`defvariant`) - lightweight presets that preprocess params for a base factory
+- **Variants** (`defvariant`) - presets for a base factory, combined with `variants:` and built on
+  each other with `extends:`
 - **Associations** (`assocs:`) - build associations before the body, from nested params or defaults
-- **Strict params** (`strict: true`) - reject unknown param keys at the factory boundary
+- **Strict params** (`strict: true`) - reject misspelled keys, and params a factory body ignores
 - **Sequences** - counters, formatted values, and cycling lists
 - **Lazy evaluation** - 0- and 1-arity functions as attribute values, resolved at build time
 - **Factory inheritance** (`extends:`) - share repo, hooks, and helper functions

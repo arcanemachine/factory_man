@@ -46,6 +46,10 @@ defmodule FactoryMan.Sequence do
       setup do
         FactoryMan.Sequence.reset()
       end
+
+  The counters are shared by every test, including tests that run at the same time, so `reset/0`
+  also rewinds the sequences that async tests are using. In async tests, reset only the sequence
+  names that the test uses, with `reset/1`.
   """
 
   @spec reset() :: :ok

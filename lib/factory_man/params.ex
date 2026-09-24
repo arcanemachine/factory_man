@@ -14,6 +14,8 @@ defmodule FactoryMan.Params do
   - Removes `belongs_to` association structs (but sets FK if the association is persisted)
   - Recursively strips nested `has_one`/`has_many` associations and embeds
   - Removes `Ecto.Association.NotLoaded` values
+  - Keeps fields whose value is `nil` (unlike ExMachina's `params_for`), so a changeset test sees
+    a `nil` field as given, not as absent. Drop them with `Map.reject/2` if needed.
   """
   def strip(%{__struct__: _} = record) do
     record
