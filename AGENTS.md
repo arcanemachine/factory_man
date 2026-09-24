@@ -199,12 +199,16 @@ Reset in test setup: `FactoryMan.Sequence.reset()`
   2. Update relevant documentation (module docs, AGENTS.md, CHANGELOG.md) and ensure all docs
      are consistent with the changes made. **Never modify old changelog entries.** Only add new ones.
   3. Run `mix format` and verify tests pass (`mix test`, or check the test-watch tmux session if running)
-  4. Make a release commit following the existing git history format (see `git log` for examples)
+  4. Make a release commit following the existing git history format (see `git log` for examples):
+     `chore: release vX.Y.Z`, bumping `@version` in `mix.exs`, the dependency version in
+     `README.md`, and the CHANGELOG heading (`## [X.Y.Z] - YYYY-MM-DD`)
+  5. Tag the release commit with a lightweight tag: `git tag vX.Y.Z <release-commit>`. The user
+     pushes the commits and tags and publishes to Hex
 - If asked to work on this project, clarify: FactoryMan library or demo schemas?
-- Always use tmux for interactive IEx sessions (see AGENTS.LOCAL.md)
+- If a local agent file exists, follow its instructions
 - The root factory for testing is `:user` via `FactoryManDemo.Factory.ChildFactory.build_user_struct/1`
 
 ## Database
 
-This project requires a Postgres database. See [AGENTS.LOCAL.md](./AGENTS.LOCAL.md) for setup.
+This project requires a Postgres database. If a local agent file exists, follow its setup instructions.
 
