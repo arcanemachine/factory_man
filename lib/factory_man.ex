@@ -57,8 +57,8 @@ defmodule FactoryMan do
   string-keyed functions. Inserts require a configured repo and `insert?` not set to `false`. Setting
   `body: :struct` changes how the struct is built, not which function families are generated.
 
-  The diagram shows the build pipeline with `body: :params`. Configured `:associations` are
-  normalized after `before_build_params` and before the factory body. Each function shown has a
+  The diagram shows the build pipeline with `body: :params`. Declared `assocs:` are resolved
+  after `before_build_params` and before the factory body. Each function shown has a
   list counterpart that builds every item independently. `insert_user_struct`, not shown, starts at the
   insert pipeline and has no list counterpart:
 
@@ -139,62 +139,69 @@ defmodule FactoryMan do
   functions are resolved at build time. Non-map, non-keyword-list values are passed through
   unchanged.
 
-  **Associations**: configure nested params with the `:associations` option (see the
+  **Associations**: declare association builders with the `assocs:` option (see the
   [Cookbook](cookbook.html)):
 
   ```elixir
-  deffactory author(params \\\\ %{}), struct: Author, associations: [user: :user] do
-    base_params = %{
-      name: "Test Author",
-      user: build_user_struct()
-    }
+  deffactory author(params \\\\ %{}), struct: Author, assocs: [user: &build_user_struct/1] do
+    base_params = %{name: "Author of \#{params.user.username}"}
 
     Map.merge(base_params, params)
   end
   ```
 
-  The association key is resolved only when supplied by the caller. A nested params map becomes
-  the associated struct, while an existing struct is reused. Missing keys continue to use the
-  factory's ordinary `base_params` defaults.
+  Each declared key is resolved before the body, so the body always receives it resolved, and
+  the canonical `Map.merge(base_params, params)` ending is always correct. The builder is the
+  default: an absent key is built with `%{}`, so a `base_params` default for a declared key is
+  never used.
 
-  Association targets are factory names, not schema names:
+  A builder is any 1-arity function (captures, local or remote, and anonymous functions),
+  a 2-arity function that also receives the factory params (see Chaining below), or
+  `{builder, options}` with either or both of:
 
-  - `associations: [user: :user]` references a factory registered in the current module.
-  - `associations: [user: {MyApp.AccountFactory, :user}]` references another factory module.
-  - Registered variants can be targets using their full registered names.
+  - `default: value` - what an absent key is treated as.
+  - `required: true` - the key must resolve to a non-nil value: a caller's `nil`, or a builder
+    that returns `nil`, raises. An absent key still builds. Singular associations only, and not
+    together with `default: nil`.
 
-  Ecto supplies the related schema and cardinality. Factory references are checked at runtime,
-  including when the caller omits an association key. A same-module target may therefore be
-  declared later in the module. The atom shorthand does not search imported or ancestor modules;
-  use an explicit module tuple for those factories.
-
-  | Caller value | Singular association | Plural association |
+  | Caller supplies | Singular association | Plural association |
   | --- | --- | --- |
-  | Key absent | Leave absent; body defaults apply | Leave absent; body defaults apply |
-  | Params map | Build through the configured factory | Raise |
-  | Correct struct | Reuse unchanged | Raise; supply a list |
-  | `nil` | Preserve nil | Raise; use `[]` |
-  | List of maps/structs | Raise | Resolve each member in order |
+  | Key absent | Treated as `default:` (`%{}` unless set) | Treated as `default:` (`[]` unless set) |
+  | `nil` | `nil` | Raise; use `[]` |
+  | Params map | Built by the builder | Raise |
+  | Struct | Reused unchanged; the builder is not called | Raise |
+  | List of maps/structs | Raise | Each item resolved in order |
 
-  Wrong struct types, invalid list members, and incorrectly typed builder results raise. Only
-  configured keys are normalized. Direct Ecto associations are supported; embeds and through
-  associations are not. Normalization calls struct builders, not insert functions.
+  Supplied structs and builder results must be the related schema, which Ecto provides (a builder
+  for a singular association may return `nil`, unless the key is `required: true`). Keys must be direct associations of an Ecto
+  schema `struct:`; embeds and `:through` associations are not supported. `default:` is `nil` or a
+  params map for a singular association, and a list of params maps for a plural one.
 
-  Factory defaults remain ordinary Elixir expressions: eager default builders run even when
-  overridden. Use existing lazy attributes when a default should only be built if retained.
-  FactoryMan does not automatically build omitted relationships or prevent recursion caused by
-  mutually recursive default builders.
+  `assocs:` is evaluated at build time, on every build, like the factory body, so it can hold
+  local captures and anonymous functions. The factory's `params` variable is not in scope there.
+  Any side effect in a `default:` value (an insert, a query, a sequence) therefore happens even
+  when the caller supplies the key; keep defaults to literals. A record at an association position
+  inside `default:` is rejected. The declaration is validated when the factory first builds.
 
-  **Imperative resolution**: `assoc/3,4` and `assoc_list/3,4` resolve one association from a
-  params map, for associations that must be inserted or whose params depend on an association
-  resolved earlier in the same body. `resolve_assoc/2,3` and `resolve_assoc_list/2,3` are their
-  value forms, for helpers that already hold the value. An explicit `nil` is preserved by all of
-  them, as it is by `:associations`.
+  **Chaining**: keys resolve top to bottom. A 2-arity builder receives `(params, factory_params)`,
+  where `factory_params` holds the caller's params with every key declared above resolved. The
+  current key and the keys declared below it are hidden; undeclared keys are visible as given.
 
-  These helpers return the resolved value and do not modify the params map. A factory that ends
-  in `Map.merge(base_params, params)` must put the resolved value back first, or the merge
-  restores the caller's raw input over it. See the [Cookbook](cookbook.html) for the ways to do
-  that, and for the full input table.
+  **Recursion**: a self-referential or mutually recursive default build (e.g. a user whose
+  `mentor` builder builds a user) raises instead of recursing forever. Declare such a key with
+  `default: nil` (`default: []` for a list), or pass a value (a required key can only be passed a
+  value). The guard also rejects recursion that would stop on its own while the key stays absent;
+  supply the key at each level instead.
+
+  **`required: true`** is checked when the key resolves, which includes a `nil` set by a
+  `before_build_params` hook. It does not check the finished struct: a body that puts `nil` back
+  afterwards is not caught.
+
+  **Imperative resolution**: `assoc/3,4` and `assoc_list/3,4` apply the same rules to one key of a
+  params map (without `required:` or the schema check), for plain helper functions, values
+  computed in the body, and builders. They return
+  the resolved value and do not modify the params map, so put it back (or drop the key) before a
+  final `Map.merge(base_params, params)`.
 
   ## Params Functions
 
@@ -233,15 +240,14 @@ defmodule FactoryMan do
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
   - `:hooks` - Merged with module-level hooks
-  - `:associations` - Keyword list mapping Ecto association keys to FactoryMan factories. Use an
-    atom for a same-module factory or `{FactoryModule, :factory}` across modules. Ecto supplies
-    the associated schema and cardinality; caller-provided nested params are normalized before the
-    factory body runs. Factory-level only.
+  - `:repo` - Overrides the module-level repo for this factory
+  - `:assocs` - Keyword list mapping Ecto association keys to builders (see Associations above).
+    Factory-level only.
   - `:strict` - Reject unknown param keys at the factory boundary (see Strict Params below)
 
   `:body` and `:strict` cascade from the module level and are ignored by non-struct factories.
-  `:associations` is factory-level only, because association keys belong to a single schema, and
-  it requires an Ecto-backed struct factory.
+  `:assocs` is factory-level only, because association keys belong to a single schema, and it
+  requires an Ecto schema `struct:`. Unknown options raise.
 
   ## Strict Params
 
@@ -289,7 +295,7 @@ defmodule FactoryMan do
 
   ```text
   build_user_struct:
-    params validation → before_build_params → configured association normalization
+    params validation → before_build_params → assocs: resolution
     → [factory body + lazy eval] → after_build_params
     → before_build_struct → struct!() → after_build_struct
 
@@ -300,11 +306,11 @@ defmodule FactoryMan do
     → before_insert → Repo.insert!() → after_insert
   ```
 
-  With `body: :struct`, configured associations are normalized after params validation and before
-  the body, and the struct the body returns is lazily evaluated. Params-stage hooks remain
-  skipped. Variants preprocess input before delegating to the
-  base builder, which performs normalization. `insert_*_struct` receives an already-built struct
-  and does not run association normalization.
+  With `body: :struct`, `assocs:` are resolved after params validation and before the body, and
+  the struct the body returns is lazily evaluated. Params-stage hooks remain skipped. A variant
+  resolves its own `assocs:` before its body, then delegates to the base builder, which reuses the
+  resolved structs. `insert_*_struct` receives an already-built struct and does not resolve
+  associations.
 
   For non-struct factories, `build_*` runs `before_build_params`, the factory body with lazy
   evaluation, then `after_build_params`.
@@ -555,8 +561,9 @@ defmodule FactoryMan do
   [:user, :admin_user]
   ```
 
-  `:factories` lists every factory and variant registered in the module (variants under their
-  full name), which enables runtime dispatch without string-building function names:
+  `assocs:` is code evaluated at build time, so it does not appear in `:opts`. `:factories` lists
+  every factory and variant registered in the module (variants under their full name), which
+  enables runtime dispatch without string-building function names:
 
   ```elixir
   def build_any(factory_module, factory_name, params) do
@@ -683,9 +690,9 @@ defmodule FactoryMan do
   - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
   - `:repo` - Overrides the module-level repo for this factory
   - `:assocs` - A keyword list mapping Ecto association keys to builders: a 1-arity function, a
-    2-arity function `(params, factory_params)`, or `{builder, default: value}`. Each key is
-    resolved before the body, which always receives it resolved; an absent key is built with
-    `%{}` (or treated as `default:`). Evaluated on every build; `params` is not in scope. Requires
+    2-arity function `(params, factory_params)`, or `{builder, options}` with `default: value`
+    and/or `required: true`. Each key is resolved before the body, which always receives it
+    resolved; an absent key is built with `%{}` (or treated as `default:`). Evaluated on every build; `params` is not in scope. Requires
     an Ecto schema `struct:`. Direct associations only. See the Associations section in the
     module documentation.
   - `:strict` - Set to `true` to raise on param keys that are not fields of the `:struct`
@@ -999,6 +1006,9 @@ defmodule FactoryMan do
   - `:assocs` - Association builders resolved before the variant body, with the same shape as
   the `deffactory` option. The base factory reuses the resolved structs, so a variant can build
   an association differently from its base. Requires a base factory with an Ecto schema `struct:`.
+  The base still enforces its own `required: true`, so a variant can add `required:` to a key but
+  cannot relax it: a variant `default: nil` on a key the base requires raises on every default
+  build.
 
   Variants are registered under their full name, so a variant can itself serve as the base of
   another variant (e.g. `defvariant senior(params \\\\ %{}), for: :admin_user`).
@@ -1357,7 +1367,8 @@ defmodule FactoryMan do
   @doc """
   Resolve one association from a params map.
 
-  Reads `key` from `params` and resolves it with the same rules as the `assocs:` option:
+  Reads `key` from `params` and resolves it with the same rules as the `assocs:` option (there is
+  no `required:` option here):
 
   | Caller supplies | Result |
   | --- | --- |
@@ -1370,9 +1381,14 @@ defmodule FactoryMan do
   a plain helper function, or inside a builder. `params` is not modified; put the result back, or
   drop the key, before a final `Map.merge(base_params, params)`.
 
+  Unlike `assocs:`, the result is not checked against a schema. A default build that starts
+  again inside itself raises, as it does for `assocs:` (see Recursion in the module
+  documentation).
+
   ## Options
 
-  - `:default` - what an absent key is treated as: `nil` or a params map (default: `%{}`).
+  - `:default` - what an absent key is treated as: `nil` or a params map (default: `%{}`). It is
+    evaluated on every call, even when the key is present, so keep it literal.
 
   ## Examples
 
@@ -1390,11 +1406,15 @@ defmodule FactoryMan do
 
   Reads `key` from `params`. An absent key is treated as `default:` (`[]` unless set). An explicit
   `nil` raises (use `[]` for no associated values). Each list item must be a params map (built with
-  `build_fun`) or a struct (reused unchanged); order is preserved.
+  `build_fun`, which must not return `nil`) or a struct (reused unchanged); order is preserved.
+
+  Like `assoc/3,4`, results are not checked against a schema, and a default build that starts
+  again inside itself raises.
 
   ## Options
 
-  - `:default` - what an absent key is treated as: a list of params maps (default: `[]`).
+  - `:default` - what an absent key is treated as: a list of params maps (default: `[]`). It is
+    evaluated on every call, even when the key is present, so keep it literal.
 
   ## Examples
 

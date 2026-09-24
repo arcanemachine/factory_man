@@ -76,20 +76,30 @@ Key rules:
 - `body: :struct` is ignored for non-struct factories; their `build_*` functions are always generated
 - Without `struct:`, the body can return **any value** (map, keyword list, string, tuple, etc.)
 - You must merge `params` yourself; FactoryMan does not auto-merge
-- For Ecto factories, use `associations: [field: :factory]` (or
-  `field: {FactoryModule, :factory}` across modules) to normalize caller-provided nested params;
-  derive defaults with direct factory calls and keep the final `Map.merge(base_params, params)`.
-  This option is factory-level only; it does not cascade from `use FactoryMan`
-- Imperative resolution uses `FactoryMan.assoc/3,4` and `FactoryMan.assoc_list/3,4` (read an
-  association from the params map by key), or `FactoryMan.resolve_assoc/2,3` and
-  `FactoryMan.resolve_assoc_list/2,3` (resolve a value directly). They return the resolved value
-  and do not modify the params map, so a factory that ends in `Map.merge(base_params, params)`
-  must put the value back first (e.g. `Map.put(params, :author, author)`) or drop the key
-- An explicit `nil` is preserved by every association tool. An absent key builds (`assoc`, unless
-  `default: nil`) or yields `[]` (`assoc_list`). A nil list raises. Embeds and through associations
-  are not supported.
-- Same-module targets must be registered in that module. Use `{Module, :factory}` for factories
-  supplied by another module, including ancestor factories.
+- For Ecto factories, declare associations with `assocs: [field: &build_x_struct/1]`. A builder
+  is a 1-arity function, a 2-arity `fn params, factory_params -> ... end` (sees keys declared
+  above it resolved), or `{builder, options}` with `default: value` and/or `required: true`. Each
+  declared key is resolved before the
+  body, so the body always receives it resolved and the final `Map.merge(base_params, params)` is
+  always correct. **The builder is the default**: an absent key is built with `%{}` (or `[]` for a
+  plural association, or treated as `default:`). Never add a `base_params` default for a declared
+  key; it is dead code
+- `assocs:` is factory-level only (also on `defvariant`), requires an Ecto schema `struct:`, and
+  accepts direct associations only (no embeds, no `:through`). It is evaluated on every build, so
+  `default:` values must be literals (`nil`, params maps, lists of params maps); `params` is not in
+  scope there. Supplied structs and builder results must be the related schema (a singular
+  builder may return `nil`, unless the key is `required: true`)
+- `required: true` (singular keys only, not with `default: nil`) raises on a caller's `nil` or a
+  builder's `nil`; an absent key still builds. It is checked at resolution, not on the finished
+  struct. A variant can add it but not relax a base's
+- Imperative resolution uses `FactoryMan.assoc/3,4` and `FactoryMan.assoc_list/3,4` (same rules,
+  only option `default:`; no `required:` and no schema check). They return the resolved value and do not modify the params map, so a
+  factory that ends in `Map.merge(base_params, params)` must put the value back first (e.g.
+  `Map.put(params, :author, author)`) or drop the key
+- An explicit `nil` is preserved; a nil list raises. A self-referential or mutually recursive
+  default build raises; declare the key with `default: nil` (`default: []` for lists) or pass a
+  value
+- Unknown `use FactoryMan`, `deffactory`, and `defvariant` options raise
 - Helper functions are **not** imported by `use FactoryMan`. Always call them qualified
   (`FactoryMan.assoc(...)`, `FactoryMan.sequence(...)`). Only `deffactory`/`defvariant` are imported.
 - Lazy evaluation (0-arity and 1-arity functions) works in both maps and keyword lists
@@ -122,7 +132,7 @@ For **embedded schemas**, `insert_*` functions are automatically skipped.
 
 ```
 build_user_struct:
-  params validation -> before_build_params -> configured association normalization
+  params validation -> before_build_params -> assocs: resolution
   -> [factory body + lazy eval] -> after_build_params
   -> before_build_struct -> struct!() -> after_build_struct
 

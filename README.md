@@ -59,16 +59,14 @@ defmodule MyApp.Factory do
     Map.merge(base_params, params)
   end
 
-  # Associations accept nested params through the declarative :associations option
-  deffactory post(params \\ %{}), struct: Post, associations: [author: :user, tags: :tag] do
-    base_params = %{
-      title: FactoryMan.sequence("post", fn n -> "Post ##{n}" end),
-      author: build_user_struct(%{username: "post-author"}),
-      tags: [
-        build_tag_struct(%{name: "elixir"}),
-        build_tag_struct(%{name: "testing"})
-      ]
-    }
+  # Associations: each builder runs before the body and is the key's default
+  deffactory post(params \\ %{}),
+    struct: Post,
+    assocs: [
+      author: &build_user_struct/1,
+      tags: {&build_tag_struct/1, default: [%{name: "elixir"}, %{name: "testing"}]}
+    ] do
+    base_params = %{title: "Post by #{params.author.username}"}
 
     Map.merge(base_params, params)
   end
@@ -82,9 +80,9 @@ defmodule MyApp.Factory do
 end
 ```
 
-Factory calls in `base_params` supply association defaults. The `associations:` option also lets
-callers supply nested params or existing structs. An atom names a factory in the same module; use
-`{FactoryModule, :factory}` for another module, as shown in the [Cookbook](COOKBOOK.md).
+The `assocs:` builders resolve each association before the body runs, so the body sees a built
+author, and callers can supply nested params, existing structs, or `nil` instead. See the
+[Cookbook](COOKBOOK.md) for chaining, variants, and recursion.
 
 Each factory generates a family of functions.
 
@@ -241,7 +239,7 @@ The full reference lives in the
 
 - **Hooks** - transform data at each stage of the build/insert pipeline
 - **Variants** (`defvariant`) - lightweight presets that preprocess params for a base factory
-- **Associations** (`associations:`) - normalize nested params through same- or cross-module factories
+- **Associations** (`assocs:`) - build associations before the body, from nested params or defaults
 - **Strict params** (`strict: true`) - reject unknown param keys at the factory boundary
 - **Sequences** - counters, formatted values, and cycling lists
 - **Lazy evaluation** - 0- and 1-arity functions as attribute values, resolved at build time
