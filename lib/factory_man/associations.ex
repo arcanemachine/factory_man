@@ -1,448 +1,500 @@
 defmodule FactoryMan.Associations do
   @moduledoc false
 
-  @resolver_options [:struct, :inherit]
-  @keyed_resolver_options [:struct, :inherit, :default]
-  @list_options [:struct, :inherit]
+  # The process dictionary holds the stack of builds in progress, innermost first. Factory
+  # entries (`{:factory, module, name, root}`) exist only for error messages; `root` is the base
+  # factory of a variant (or the factory itself). Default build entries
+  # (`{:default, key, builder_identity}`) drive the recursion guard.
+  @build_stack :factory_man_build_stack
+
+  ## Build tracking
 
   @doc false
-  def resolve(value, build_fun, opts \\ []) do
-    validate_builder!(build_fun)
-    opts = validate_options!(opts, @resolver_options)
-    {expected_struct, inherit} = resolver_opts!(opts)
-
-    resolve_value(value, build_fun, inherit, expected_struct, [])
+  def track_factory(module, factory_name, root_name \\ nil, fun) do
+    with_entry({:factory, module, factory_name, root_name || factory_name}, fun)
   end
 
-  @doc false
-  def resolve_key(params, key, build_fun, opts \\ []) do
-    validate_key!(key)
-    validate_params_map!(params, key)
-    validate_builder!(build_fun)
-    opts = validate_options!(opts, @keyed_resolver_options)
-    default = validate_default!(Keyword.get(opts, :default, :build))
-    {expected_struct, inherit} = resolver_opts!(opts)
-    context = [key: key]
+  defp with_entry(entry, fun) do
+    previous = Process.get(@build_stack, [])
+    Process.put(@build_stack, [entry | previous])
 
-    case Map.fetch(params, key) do
-      {:ok, value} -> resolve_value(value, build_fun, inherit, expected_struct, context)
-      :error when default == :build -> build_result!(build_fun, inherit, expected_struct, context)
-      :error -> nil
+    try do
+      fun.()
+    after
+      Process.put(@build_stack, previous)
     end
   end
 
-  @doc false
-  def resolve_list(values, build_fun, opts \\ []) do
-    validate_builder!(build_fun)
-    opts = validate_options!(opts, @list_options)
-    {expected_struct, inherit} = resolver_opts!(opts)
-
-    resolve_values(values, build_fun, inherit, expected_struct, [])
-  end
+  ## `assocs:` option
 
   @doc false
-  def resolve_list_key(params, key, build_fun, opts \\ []) do
-    validate_key!(key)
-    validate_params_map!(params, key)
-    validate_builder!(build_fun)
-    opts = validate_options!(opts, @list_options)
-    {expected_struct, inherit} = resolver_opts!(opts)
-
-    case Map.fetch(params, key) do
-      {:ok, values} -> resolve_values(values, build_fun, inherit, expected_struct, key: key)
-      :error -> []
-    end
-  end
-
-  @doc false
-  def compile_specs!(_owner_module, _owner_factory_name, _owner_schema, associations)
-      when is_nil(associations) or associations == [],
-      do: []
-
-  def compile_specs!(owner_module, owner_factory_name, owner_schema, associations)
-      when is_list(associations) do
-    unless Keyword.keyword?(associations) do
-      raise ArgumentError,
-            ":associations for factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-              "must be a keyword list, got: #{inspect(associations)}"
-    end
-
-    unless FactoryMan.Codegen.ecto_schema?(owner_schema) do
-      raise ArgumentError,
-            "factory :#{owner_factory_name} in #{inspect(owner_module)} uses :associations, " <>
-              "but its :struct is not an Ecto schema"
-    end
-
-    duplicate_keys = associations |> Keyword.keys() |> duplicates()
-
-    if duplicate_keys != [] do
-      raise ArgumentError,
-            "duplicate association keys #{inspect(duplicate_keys)} for factory " <>
-              ":#{owner_factory_name} in #{inspect(owner_module)}"
-    end
-
-    Enum.map(associations, fn {key, target} ->
-      unless is_atom(key) do
+  def validate_schema!(schema, module, factory_name) do
+    cond do
+      is_nil(schema) ->
         raise ArgumentError,
-              "association keys for factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-                "must be atoms, got: #{inspect(key)}"
-      end
+              "factory :#{factory_name} in #{inspect(module)} uses assocs:, which requires " <>
+                "struct: to be an Ecto schema"
 
-      association =
-        try do
-          owner_schema.__schema__(:association, key)
-        rescue
-          _ -> nil
-        end
-
-      if is_nil(association) do
+      not FactoryMan.Codegen.ecto_schema?(schema) ->
         raise ArgumentError,
-              "association :#{key} for factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-                "is not defined on #{inspect(owner_schema)}"
-      end
+              "factory :#{factory_name} in #{inspect(module)} uses assocs:, but " <>
+                "#{inspect(schema)} is not an Ecto schema"
 
-      if Map.get(association, :through) not in [nil, []] do
-        raise ArgumentError,
-              "association :#{key} for factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-                "is a through association, which is not supported"
-      end
-
-      target = normalize_target!(target, owner_module, owner_factory_name, key)
-      cardinality = Map.get(association, :cardinality)
-      related_schema = Map.get(association, :related)
-
-      if cardinality not in [:one, :many] or is_nil(related_schema) do
-        raise ArgumentError,
-              "could not determine the type of association :#{key} for factory " <>
-                ":#{owner_factory_name} in #{inspect(owner_module)}"
-      end
-
-      {key, cardinality, related_schema, target}
-    end)
+      true ->
+        :ok
+    end
   end
 
-  def compile_specs!(owner_module, owner_factory_name, _owner_schema, associations) do
+  @doc false
+  def resolve_assocs!(params, _specs, _schema, module, factory_name) when not is_map(params) do
     raise ArgumentError,
-          ":associations for factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-            "must be a keyword list, got: #{inspect(associations)}"
+          "expected a params map for factory :#{factory_name} in #{inspect(module)}, " <>
+            "got: #{inspect(params)}"
   end
 
-  @doc false
-  def normalize_params!(params, [], _owner_module, _owner_factory_name), do: params
+  def resolve_assocs!(params, specs, schema, module, factory_name) do
+    specs = validate_specs!(specs, schema, module, factory_name)
+    declared_keys = Enum.map(specs, &elem(&1, 0))
 
-  def normalize_params!(params, specs, owner_module, owner_factory_name) when is_map(params) do
-    # Every declared target is validated on every build, including for keys the caller omitted:
-    # a mistyped factory reference should fail whether or not a test happens to exercise it.
-    resolved_specs =
-      Enum.map(specs, fn {key, cardinality, related_schema, target} ->
-        resolver =
-          association_resolver!(related_schema, target, owner_module, owner_factory_name, key)
+    # Keys resolve top to bottom. A builder sees the keys declared above it resolved, and not the
+    # raw input of the current key or of any key declared below it.
+    {params, []} =
+      Enum.reduce(specs, {params, declared_keys}, fn
+        {key, cardinality, related, builder, default, required}, {params, [key | later_keys]} ->
+          factory_params = Map.drop(params, [key | later_keys])
+          build = &call_builder(builder, &1, factory_params)
 
-        {key, cardinality, resolver}
+          context = %{
+            module: module,
+            factory: factory_name,
+            key: key,
+            source: :assocs,
+            related: related,
+            required: required
+          }
+
+          value =
+            case Map.fetch(params, key) do
+              {:ok, value} -> resolve(value, cardinality, build, context)
+              :error -> resolve_default(default, cardinality, builder, build, context)
+            end
+
+          {Map.put(params, key, value), later_keys}
       end)
 
-    Enum.reduce(resolved_specs, params, fn {key, cardinality, resolver}, params ->
-      if Map.has_key?(params, key) do
-        context = [module: owner_module, factory: owner_factory_name, key: key]
+    params
+  end
 
-        resolved =
-          resolve_declared_value!(Map.fetch!(params, key), cardinality, resolver, context)
+  defp call_builder(builder, params, _factory_params) when is_function(builder, 1),
+    do: builder.(params)
 
-        Map.put(params, key, resolved)
-      else
-        params
+  defp call_builder(builder, params, factory_params), do: builder.(params, factory_params)
+
+  defp validate_specs!(specs, schema, module, factory_name) do
+    unless is_list(specs) and Keyword.keyword?(specs) do
+      raise ArgumentError,
+            "assocs: for factory :#{factory_name} in #{inspect(module)} must be a keyword list, " <>
+              "got: #{inspect(specs)}"
+    end
+
+    case specs |> Keyword.keys() |> duplicates() do
+      [] ->
+        :ok
+
+      duplicate_keys ->
+        raise ArgumentError,
+              "duplicate assocs: keys #{inspect(duplicate_keys)} for factory :#{factory_name} " <>
+                "in #{inspect(module)}"
+    end
+
+    Enum.map(specs, fn {key, spec} ->
+      context = %{module: module, factory: factory_name, key: key, source: :assocs}
+      association = association!(schema, context)
+      {builder, opts} = builder_spec!(spec, context)
+      required = required!(opts, association.cardinality, context)
+
+      default =
+        opts
+        |> Keyword.get(:default, :implicit)
+        |> validate_default!(association.cardinality, context)
+        |> reject_records!(association.related, context)
+
+      {key, association.cardinality, association.related, builder, default, required}
+    end)
+  end
+
+  defp association!(schema, context) do
+    association = schema.__schema__(:association, context.key)
+
+    cond do
+      is_nil(association) ->
+        raise ArgumentError,
+              "#{describe(context)} is not an association of #{inspect(schema)} " <>
+                "(embeds are not supported)"
+
+      Map.get(association, :through) not in [nil, []] ->
+        raise ArgumentError,
+              "#{describe(context)} is a :through association, which cannot be declared; " <>
+                "resolve it in a builder or the body"
+
+      true ->
+        association
+    end
+  end
+
+  defp builder_spec!(builder, _context) when is_function(builder, 1) or is_function(builder, 2),
+    do: {builder, []}
+
+  defp builder_spec!({builder, opts} = spec, context)
+       when is_function(builder, 1) or is_function(builder, 2) do
+    valid? =
+      is_list(opts) and Keyword.keyword?(opts) and opts != [] and
+        Keyword.keys(opts) -- [:default, :required] == [] and
+        duplicates(Keyword.keys(opts)) == []
+
+    if valid?, do: {builder, opts}, else: raise_invalid_spec!(spec, context)
+  end
+
+  defp builder_spec!(spec, context), do: raise_invalid_spec!(spec, context)
+
+  defp raise_invalid_spec!(spec, context) do
+    raise ArgumentError,
+          "#{describe(context)} must be a 1- or 2-arity function, or {function, options} with " <>
+            "default: and/or required:, got: #{inspect(spec)}"
+  end
+
+  # `required: false` is a no-op on any key, so a shared declaration can compute the flag
+  defp required!(opts, cardinality, context) do
+    case Keyword.get(opts, :required, false) do
+      false ->
+        false
+
+      true when cardinality == :many ->
+        raise ArgumentError,
+              "#{describe(context)} is a list, so required: does not apply: nil already raises " <>
+                "for lists, and required: is not a non-emptiness check"
+
+      true ->
+        if Keyword.has_key?(opts, :default) and is_nil(opts[:default]) do
+          raise ArgumentError,
+                "#{describe(context)} is required, so default: nil contradicts it"
+        end
+
+        true
+
+      other ->
+        raise ArgumentError,
+              "required: for #{describe(context)} must be true or false, got: #{inspect(other)}"
+    end
+  end
+
+  ## Imperative helpers
+
+  @doc false
+  def resolve_key(params, key, builder, opts, cardinality) do
+    context = %{key: key, source: :helper}
+    validate_helper_args!(params, key, builder, context)
+    default = helper_default!(opts, cardinality, context)
+
+    case Map.fetch(params, key) do
+      {:ok, value} -> resolve(value, cardinality, builder, context)
+      :error -> resolve_default(default, cardinality, builder, builder, context)
+    end
+  end
+
+  defp validate_helper_args!(params, key, builder, context) do
+    unless is_map(params) and not is_struct(params) do
+      raise ArgumentError,
+            "expected a params map to read #{describe(context)} from, got: #{inspect(params)}"
+    end
+
+    unless is_atom(key) and not is_nil(key) do
+      raise ArgumentError, "expected an association key atom, got: #{inspect(key)}"
+    end
+
+    unless is_function(builder, 1) do
+      raise ArgumentError,
+            "expected the builder for #{describe(context)} to be a 1-arity function, " <>
+              "got: #{inspect(builder)}"
+    end
+  end
+
+  defp helper_default!([], cardinality, context),
+    do: validate_default!(:implicit, cardinality, context)
+
+  defp helper_default!([default: default], cardinality, context),
+    do: validate_default!(default, cardinality, context)
+
+  defp helper_default!(opts, _cardinality, context) do
+    raise ArgumentError,
+          "invalid options for #{describe(context)}: #{inspect(opts)}. " <>
+            "The only option is default:"
+  end
+
+  ## Defaults
+
+  defp validate_default!(:implicit, :one, _context), do: %{}
+  defp validate_default!(:implicit, :many, _context), do: []
+  defp validate_default!(nil, :one, _context), do: nil
+
+  defp validate_default!(nil, :many, context) do
+    raise ArgumentError, "#{describe(context)} is a list, so default: nil is invalid; use []"
+  end
+
+  defp validate_default!(default, :one, _context)
+       when is_map(default) and not is_struct(default),
+       do: default
+
+  defp validate_default!(default, :many, context) when is_list(default) do
+    if Enum.all?(default, &(is_map(&1) and not is_struct(&1))) do
+      default
+    else
+      raise_invalid_default!(default, "a list of params maps", context)
+    end
+  end
+
+  defp validate_default!(default, :one, context),
+    do: raise_invalid_default!(default, "nil or a params map", context)
+
+  defp validate_default!(default, :many, context),
+    do: raise_invalid_default!(default, "a list of params maps", context)
+
+  defp raise_invalid_default!(default, expected, context) do
+    raise ArgumentError,
+          "default: for #{describe(context)} must be #{expected}, got: #{inspect(default)}"
+  end
+
+  # Defaults are evaluated on every build, so a record built inside one would be built (and maybe
+  # inserted) even when the caller supplies the key. Only association positions are checked: a
+  # struct in any other field (a date, an embed, data in a map field) is a plain value.
+  defp reject_records!(default, related_schema, context) do
+    case find_record(default, related_schema, []) do
+      nil ->
+        default
+
+      {record, path} ->
+        raise ArgumentError,
+              "default: for #{describe(context)} has a %#{inspect(record.__struct__)}{} record at " <>
+                "association #{Enum.map_join(path, ".", &inspect/1)}. Defaults are evaluated on " <>
+                "every build, so use params; put build logic in the builder."
+    end
+  end
+
+  defp find_record(items, schema, path) when is_list(items) do
+    Enum.find_value(items, &find_record(&1, schema, path))
+  end
+
+  defp find_record(params, schema, path) when is_map(params) and not is_struct(params) do
+    Enum.find_value(params, fn {key, value} ->
+      case schema.__schema__(:association, key) do
+        nil -> nil
+        association -> find_record_at(value, association.related, path ++ [key])
       end
     end)
   end
 
-  def normalize_params!(params, _specs, owner_module, owner_factory_name) do
+  defp find_record(_value, _schema, _path), do: nil
+
+  defp find_record_at(value, _schema, path) when is_struct(value), do: {value, path}
+
+  defp find_record_at(values, schema, path) when is_list(values) do
+    Enum.find_value(values, &find_record_at(&1, schema, path))
+  end
+
+  defp find_record_at(value, schema, path), do: find_record(value, schema, path)
+
+  # An absent key is treated as its default. A default that builds something is tracked by the
+  # recursion guard; `nil` and `[]` build nothing.
+  defp resolve_default(default, cardinality, _builder, build, context)
+       when default in [nil, []],
+       do: resolve(default, cardinality, build, context)
+
+  defp resolve_default(default, cardinality, builder, build, context) do
+    entry = {:default, context.key, builder_identity(builder)}
+    stack = Process.get(@build_stack, [])
+
+    if entry in stack do
+      raise_recursion!(entry, stack, cardinality, context)
+    end
+
+    with_entry(entry, fn -> resolve(default, cardinality, build, context) end)
+  end
+
+  # Closures created at the same code site share an identity whatever they capture, so a loop
+  # through closures is still caught. `&b/1` and `&M.b/1` also share one.
+  defp builder_identity(builder) do
+    info = Function.info(builder)
+    {info[:module], info[:name], info[:arity]}
+  end
+
+  defp raise_recursion!({:default, key, _identity} = entry, stack, cardinality, context) do
+    path = stack |> Enum.reverse() |> Enum.map(&path_label/1)
+    loop = Enum.take_while(stack, &(&1 != entry))
+    loop_roots = for {:factory, module, _name, root} <- loop, uniq: true, do: {module, root}
+    kind = if length(loop_roots) > 1, do: "mutually recursive", else: "self-referential"
+
+    owner = calling_factory(stack)
+    rebuilt = owner && elem(owner, 2)
+
+    subject =
+      case owner do
+        {:factory, module, name, _root} ->
+          "association #{inspect(key)} in factory #{inspect(name)} in #{inspect(module)}"
+
+        nil ->
+          "association #{inspect(key)}"
+      end
+
+    rebuilds = if rebuilt, do: "builds #{inspect(rebuilt)} again", else: "starts again"
+    empty = if cardinality == :one, do: "nil", else: "[]"
+
+    # A required key cannot default to nil, so a value from the caller is the only fix
+    fix =
+      case context do
+        %{required: true} ->
+          "Pass a value (a struct or params)."
+
+        %{source: :assocs} ->
+          "Declare it as {builder, default: #{empty}}, or pass a value (nil, a struct, or params)."
+
+        %{source: :helper} ->
+          "Pass default: #{empty}, or pass a value (nil, a struct, or params)."
+      end
+
+    raise ArgumentError, """
+    #{subject} is #{kind}: building it by default #{rebuilds}, which recurses forever.
+    Build path: #{Enum.join(path ++ [inspect(key)], " → ")}
+    #{fix}
+    If the recursion is meant to stop on its own, supply the key at each level instead.\
+    """
+  end
+
+  # The innermost factory being built. A variant delegates to its base, so when the base sits
+  # directly inside its variant, the variant is the factory that was called.
+  defp calling_factory(stack) do
+    case Enum.drop_while(stack, &match?({:default, _, _}, &1)) do
+      [{:factory, module, _name, root} | _] = entries ->
+        entries
+        |> Enum.take_while(&match?({:factory, ^module, _, ^root}, &1))
+        |> List.last()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp path_label({:factory, _module, name, _root}), do: inspect(name)
+  defp path_label({:default, key, _identity}), do: inspect(key)
+
+  ## Resolution rules
+
+  defp resolve(nil, :one, _build, %{required: true} = context) do
+    raise ArgumentError, "#{describe_calling(context)} is required, got nil"
+  end
+
+  defp resolve(nil, :one, _build, _context), do: nil
+
+  # A builder may decide there is no associated value, so `nil` from a builder is kept
+  defp resolve(value, :one, _build, context) when is_struct(value), do: check!(value, context)
+
+  defp resolve(value, :one, build, context) when is_map(value) do
+    case build.(value) do
+      nil ->
+        if Map.get(context, :required, false) do
+          raise ArgumentError,
+                "the builder for #{describe_calling(context)} returned nil, but the " <>
+                  "association is required"
+        end
+
+        nil
+
+      built ->
+        check!(built, context)
+    end
+  end
+
+  defp resolve(value, :one, _build, context) do
     raise ArgumentError,
-          "expected params for factory :#{owner_factory_name} in #{inspect(owner_module)} to be a " <>
-            "map when :associations are configured, got: #{inspect(params)}"
+          "expected #{describe(context)} to be a struct, a params map, or nil, " <>
+            "got: #{inspect(value)}"
   end
 
-  # ── Value resolution ─────────────────────────────────────────────
-
-  defp resolve_declared_value!(value, :one, {related_schema, builder}, context) do
-    resolve_value(value, builder, %{}, related_schema, context)
+  defp resolve(nil, :many, _build, context) do
+    raise ArgumentError, "expected #{describe(context)} to be a list, got nil (use [])"
   end
 
-  defp resolve_declared_value!(values, :many, {related_schema, builder}, context) do
-    resolve_values(values, builder, %{}, related_schema, context)
-  end
-
-  defp resolve_values(nil, _build_fun, _inherit, _expected_struct, context) do
-    raise ArgumentError,
-          "expected #{describe_context(context)} to be a list; got nil " <>
-            "(use [] for no associated values)"
-  end
-
-  defp resolve_values(values, build_fun, inherit, expected_struct, context)
-       when is_list(values) do
+  defp resolve(values, :many, build, context) when is_list(values) do
     values
     |> Enum.with_index()
-    |> Enum.map(fn {value, index} ->
-      item_context = Keyword.put(context, :index, index)
+    |> Enum.map(fn
+      {value, index} when is_struct(value) ->
+        check!(value, Map.put(context, :index, index))
 
-      case value do
-        nil -> raise_invalid_value!(nil, item_context)
-        value -> resolve_value(value, build_fun, inherit, expected_struct, item_context)
-      end
+      {value, index} when is_map(value) ->
+        build_item!(build, value, Map.put(context, :index, index))
+
+      {value, index} ->
+        raise_invalid_item!(value, Map.put(context, :index, index))
     end)
   end
 
-  defp resolve_values(other, _build_fun, _inherit, _expected_struct, context) do
+  defp resolve(value, :many, _build, context) do
     raise ArgumentError,
-          "expected #{describe_context(context)} to be a list of structs and/or params maps, " <>
-            "got: #{inspect(other)}"
+          "expected #{describe(context)} to be a list of structs and/or params maps, " <>
+            "got: #{inspect(value)}"
   end
 
-  defp resolve_value(nil, _build_fun, _inherit, _expected_struct, _context), do: nil
+  # A list never holds nil, so a builder must return a value for each item
+  defp build_item!(build, params, context) do
+    case build.(params) do
+      nil when not is_map_key(context, :related) ->
+        raise ArgumentError, "the builder for #{describe(context)} returned nil"
 
-  defp resolve_value(value, build_fun, inherit, expected_struct, context) when is_map(value) do
-    if is_struct(value) do
-      validate_struct!(value, expected_struct, context)
-    else
-      build_result!(build_fun, Map.merge(inherit, value), expected_struct, context)
+      built ->
+        check!(built, context)
     end
   end
 
-  defp resolve_value(value, _build_fun, _inherit, _expected_struct, context) do
-    raise_invalid_value!(value, context)
+  # `assocs:` knows the related schema, so supplied structs and builder results are checked
+  # against it. The helpers have no schema to check against.
+  defp check!(value, %{related: related} = context) when not is_struct(value, related) do
+    raise ArgumentError,
+          "#{describe(context)} expects a %#{inspect(related)}{}, got: #{inspect(value)}"
   end
 
-  defp build_result!(build_fun, params, expected_struct, context) do
-    build_fun.(params) |> validate_struct!(expected_struct, context)
+  defp check!(value, _context), do: value
+
+  defp raise_invalid_item!(value, context) do
+    raise ArgumentError,
+          "expected #{describe(context)} to be a struct or a params map, got: #{inspect(value)}"
   end
 
-  defp validate_struct!(value, nil, _context), do: value
-
-  defp validate_struct!(value, expected_struct, context) do
-    if is_struct(value, expected_struct) do
-      value
-    else
-      raise ArgumentError,
-            "expected #{describe_context(context)} to be a #{inspect(expected_struct)} struct, " <>
-              "got: #{inspect(value)}"
+  # Names the factory that was called, like the recursion error: when a variant delegates to its
+  # base, the variant is named even though the base declared the association
+  defp describe_calling(context) do
+    case calling_factory(Process.get(@build_stack, [])) do
+      {:factory, module, name, _root} -> describe(%{context | module: module, factory: name})
+      nil -> describe(context)
     end
   end
 
-  defp raise_invalid_value!(value, context) do
-    accepted =
-      if Keyword.has_key?(context, :index),
-        do: "a struct or a params map",
-        else: "a struct, a params map, or nil"
-
-    raise ArgumentError,
-          "expected #{describe_context(context)} to be #{accepted}, got: #{inspect(value)}"
-  end
-
-  # Renders an error context: an optional key (with an optional list index), and the owning
-  # factory/module when the caller is the declarative `:associations` option.
-  defp describe_context(context) do
+  defp describe(context) do
     subject =
-      case {context[:key], context[:index]} do
-        {nil, nil} -> "an association"
-        {nil, index} -> "association list item #{index}"
-        {key, nil} -> "association #{inspect(key)}"
-        {key, index} -> "association #{inspect(key)}[#{index}]"
+      case context[:index] do
+        nil -> "association #{inspect(context.key)}"
+        index -> "association #{inspect(context.key)}[#{index}]"
       end
 
-    case {context[:factory], context[:module]} do
-      {nil, _} -> subject
-      {factory, nil} -> "#{subject} in factory #{inspect(factory)}"
-      {factory, module} -> "#{subject} in factory #{inspect(factory)} in #{inspect(module)}"
+    case context do
+      %{factory: factory, module: module} ->
+        "#{subject} in factory #{inspect(factory)} in #{inspect(module)}"
+
+      _ ->
+        subject
     end
-  end
-
-  # ── Declarative target resolution ────────────────────────────────
-
-  defp association_resolver!(
-         related_schema,
-         {target_module, target_name},
-         owner_module,
-         owner_factory_name,
-         key
-       ) do
-    target_schema =
-      target_schema!(target_module, target_name, owner_module, owner_factory_name, key)
-
-    if target_schema != related_schema do
-      raise ArgumentError,
-            "association :#{key} in factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-              "expects #{inspect(related_schema)}, but #{inspect(target_module)} factory " <>
-              ":#{target_name} declares #{inspect(target_schema)}"
-    end
-
-    builder = builder!(target_module, target_name, owner_module, owner_factory_name, key)
-
-    {related_schema, &apply(target_module, builder, [&1])}
-  end
-
-  defp target_schema!(target_module, target_name, owner_module, owner_factory_name, key) do
-    ensure_factory_module!(target_module, owner_module, owner_factory_name, key)
-
-    factories = apply(target_module, :__factory_man__, [:factories])
-
-    unless target_name in factories do
-      raise ArgumentError,
-            "association :#{key} in factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-              "references unknown factory :#{target_name} in #{inspect(target_module)}"
-    end
-
-    target_opts = apply(target_module, :__factory_man__, [:opts, target_name])
-    target_schema = Keyword.get(target_opts, :struct)
-
-    if is_nil(target_schema) do
-      raise ArgumentError,
-            "association :#{key} in factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-              "references non-struct factory :#{target_name} in #{inspect(target_module)}"
-    end
-
-    target_schema
-  end
-
-  defp builder!(target_module, target_name, owner_module, owner_factory_name, key) do
-    builder = :"build_#{target_name}_struct"
-
-    unless function_exported?(target_module, builder, 1) do
-      raise ArgumentError,
-            "association :#{key} in factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-              "cannot use #{inspect(target_module)} factory :#{target_name}: " <>
-              "#{builder}/1 is not exported"
-    end
-
-    builder
-  end
-
-  defp ensure_factory_module!(target_module, owner_module, owner_factory_name, key) do
-    unless is_atom(target_module) do
-      raise ArgumentError,
-            "association :#{key} in factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-              "has an invalid factory module: #{inspect(target_module)}"
-    end
-
-    case Code.ensure_loaded(target_module) do
-      {:module, ^target_module} ->
-        if function_exported?(target_module, :__factory_man__, 1) and
-             function_exported?(target_module, :__factory_man__, 2) do
-          :ok
-        else
-          raise ArgumentError,
-                "association :#{key} in factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-                  "references #{inspect(target_module)}, which is not a FactoryMan module"
-        end
-
-      {:error, reason} ->
-        raise ArgumentError,
-              "association :#{key} in factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-                "could not load factory module #{inspect(target_module)}: #{inspect(reason)}"
-    end
-  end
-
-  defp normalize_target!(factory_name, owner_module, _owner_factory_name, _key)
-       when is_atom(factory_name),
-       do: {owner_module, factory_name}
-
-  defp normalize_target!({module, factory_name}, _owner_module, _owner_factory_name, _key)
-       when is_atom(module) and is_atom(factory_name),
-       do: {module, factory_name}
-
-  defp normalize_target!(target, owner_module, owner_factory_name, key) do
-    raise ArgumentError,
-          "association :#{key} for factory :#{owner_factory_name} in #{inspect(owner_module)} " <>
-            "must reference a factory name or {module, factory_name}, got: #{inspect(target)}"
-  end
-
-  # ── Option validation ────────────────────────────────────────────
-
-  defp resolver_opts!(opts) do
-    {validate_expected_struct!(Keyword.get(opts, :struct)),
-     validate_inherit!(Keyword.get(opts, :inherit, %{}))}
-  end
-
-  defp validate_builder!(build_fun) when is_function(build_fun, 1), do: :ok
-
-  defp validate_builder!(build_fun) do
-    raise ArgumentError,
-          "expected association builder to be a 1-arity function, got: #{inspect(build_fun)}"
-  end
-
-  defp validate_key!(key) when is_atom(key) and not is_nil(key), do: :ok
-
-  defp validate_key!(key) do
-    raise ArgumentError, "expected an association key atom, got: #{inspect(key)}"
-  end
-
-  defp validate_params_map!(params, _key) when is_map(params) and not is_struct(params), do: :ok
-
-  defp validate_params_map!(params, key) do
-    raise ArgumentError,
-          "expected a params map to read association #{inspect(key)} from, got: #{inspect(params)}"
-  end
-
-  defp validate_default!(default) when default in [:build, nil], do: default
-
-  defp validate_default!(default) do
-    raise ArgumentError,
-          "invalid :default option: #{inspect(default)}. Expected :build (default) or nil."
-  end
-
-  defp validate_options!(opts, allowed) when is_list(opts) do
-    unless Keyword.keyword?(opts) do
-      raise ArgumentError,
-            "expected association options to be a keyword list, got: #{inspect(opts)}"
-    end
-
-    unknown = Keyword.keys(opts) -- allowed
-
-    if unknown != [] do
-      raise ArgumentError,
-            "invalid association options #{inspect(unknown)}. Allowed options: #{inspect(allowed)}"
-    end
-
-    opts
-  end
-
-  defp validate_options!(opts, _allowed) do
-    raise ArgumentError,
-          "expected association options to be a keyword list, got: #{inspect(opts)}"
-  end
-
-  defp validate_expected_struct!(nil), do: nil
-
-  defp validate_expected_struct!(struct) when is_atom(struct) do
-    case Code.ensure_loaded(struct) do
-      {:module, ^struct} ->
-        if function_exported?(struct, :__struct__, 0) do
-          struct
-        else
-          raise ArgumentError,
-                "expected association :struct option to name a struct module, got: #{inspect(struct)}"
-        end
-
-      {:error, _reason} ->
-        raise ArgumentError,
-              "expected association :struct option to name a loaded struct module, got: #{inspect(struct)}"
-    end
-  end
-
-  defp validate_expected_struct!(struct) do
-    raise ArgumentError,
-          "expected association :struct option to be a module, got: #{inspect(struct)}"
-  end
-
-  defp validate_inherit!(inherit) when is_map(inherit) and not is_struct(inherit), do: inherit
-
-  defp validate_inherit!(inherit) do
-    raise ArgumentError,
-          "expected association :inherit option to be a params map, got: #{inspect(inherit)}"
   end
 
   defp duplicates(values) do
-    values
-    |> Enum.frequencies()
-    |> Enum.filter(fn {_value, count} -> count > 1 end)
-    |> Enum.map(&elem(&1, 0))
+    for {value, count} <- Enum.frequencies(values), count > 1, do: value
   end
 end

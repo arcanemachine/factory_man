@@ -13,11 +13,8 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     Map.merge(base_params, params)
   end
 
-  deffactory author(params \\ %{}), struct: Author, associations: [user: :user] do
-    base_params = %{
-      name: "Some author",
-      user: build_user_struct()
-    }
+  deffactory author(params \\ %{}), struct: Author, assocs: [user: &build_user_struct/1] do
+    base_params = %{name: "Some author"}
 
     Map.merge(base_params, params)
   end

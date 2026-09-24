@@ -176,7 +176,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       assert author.user.username == "provided-user"
     end
 
-    test "caller can provide association params (built via associations:)" do
+    test "caller can provide association params (built via assocs:)" do
       author = ChildFactory.build_author_struct(%{user: %{username: "from-params"}})
 
       assert %User{username: "from-params"} = author.user
@@ -184,7 +184,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
 
     test "an association of the wrong struct type raises" do
       assert_raise ArgumentError,
-                   ~r/expected association :user in factory :author in .*ChildFactory to be a FactoryManDemo.Users.User struct/,
+                   ~r/association :user in factory :author in .*ChildFactory expects a %FactoryManDemo.Users.User\{\}/,
                    fn ->
                      ChildFactory.build_author_struct(%{user: %Author{}})
                    end

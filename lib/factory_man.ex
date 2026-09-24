@@ -580,11 +580,7 @@ defmodule FactoryMan do
     quote do
       unquote_splicing(parent_imports)
 
-      if Keyword.has_key?(unquote(opts), :associations) do
-        raise ArgumentError,
-              "invalid module option :associations in #{inspect(__MODULE__)}. Association keys " <>
-                "belong to a single schema, so :associations is set per factory, not per module."
-      end
+      FactoryMan._validate_module_opts!(unquote(opts), __MODULE__)
 
       # Only the definition macros are imported, since they read as DSL keywords. Helper functions
       # (assoc/3,4, assoc_list/3,4, sequence/1,2,3, ...) are deliberately not imported: they are called with the
@@ -598,6 +594,9 @@ defmodule FactoryMan do
         ]
 
       Module.register_attribute(__MODULE__, :factory_man_registry, accumulate: true)
+
+      # Each variant's root factory, so the recursion guard treats a variant and its base as one
+      Module.register_attribute(__MODULE__, :factory_man_variant_roots, accumulate: true)
 
       parent_factory_opts =
         case unquote(opts)[:extends] do
@@ -682,12 +681,13 @@ defmodule FactoryMan do
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
   - `:hooks` - A keyword list of hook functions to apply at different stages (see Hooks section)
-  - `:associations` - A keyword list mapping Ecto association keys to FactoryMan factories. Use
-    `:user` for a factory in the current module or `{FactoryModule, :user}` for a cross-module
-    factory. Ecto supplies the associated schema and cardinality; caller-provided nested params
-    are normalized into associated structs before the body. Missing keys remain untouched so
-    `base_params` continues to provide defaults. Direct associations are supported; embeds and
-    `:through` associations are not.
+  - `:repo` - Overrides the module-level repo for this factory
+  - `:assocs` - A keyword list mapping Ecto association keys to builders: a 1-arity function, a
+    2-arity function `(params, factory_params)`, or `{builder, default: value}`. Each key is
+    resolved before the body, which always receives it resolved; an absent key is built with
+    `%{}` (or treated as `default:`). Evaluated on every build; `params` is not in scope. Requires
+    an Ecto schema `struct:`. Direct associations only. See the Associations section in the
+    module documentation.
   - `:strict` - Set to `true` to raise on param keys that are not fields of the `:struct`
     option's struct, or `[allow: [...]]` to permit specific extra keys (see the Strict Params
     section). Ignored for non-struct factories.
@@ -747,6 +747,7 @@ defmodule FactoryMan do
     has_default = extraction.has_default
     plain_var_ast = extraction.plain_var
     caller_module = __CALLER__.module
+    {assocs_ast, opts} = pop_assocs(opts)
 
     quote bind_quoted: [
             factory_name: factory_name,
@@ -758,8 +759,17 @@ defmodule FactoryMan do
             plain_var_ast: Macro.escape(plain_var_ast, unquote: true),
             caller_module: caller_module,
             opts: opts,
+            assocs_ast: Macro.escape(assocs_ast, unquote: true),
             block: Macro.escape(block, unquote: true)
           ] do
+      FactoryMan._reject_non_literal_assocs!(opts)
+
+      FactoryMan._validate_opts!(
+        opts,
+        [:struct, :insert?, :body, :hooks, :strict, :repo, :assocs],
+        "factory :#{factory_name} in #{inspect(caller_module)}"
+      )
+
       parent_factory_opts = Module.get_attribute(__MODULE__, :parent_factory_opts)
 
       merged_opts = FactoryMan._merge_opts(parent_factory_opts, opts)
@@ -772,56 +782,23 @@ defmodule FactoryMan do
       end
 
       # Compile-time parse of :strict into `false` (disabled) or a list of allowed extra keys
-      strict =
-        case Keyword.get(merged_opts, :strict, false) do
-          false ->
-            false
-
-          true ->
-            []
-
-          [allow: allow] when is_list(allow) ->
-            if Enum.all?(allow, &is_atom/1) do
-              allow
-            else
-              raise ArgumentError,
-                    "invalid :strict option: [allow: #{inspect(allow)}]. " <>
-                      "Allowed extra keys must be atoms."
-            end
-
-          other ->
-            raise ArgumentError,
-                  "invalid :strict option: #{inspect(other)}. " <>
-                    "Expected true, false (default), or [allow: [keys]]."
-        end
+      strict = FactoryMan._parse_strict!(Keyword.get(merged_opts, :strict, false))
 
       # Extract hooks - used many times throughout
       hooks = Keyword.get(merged_opts, :hooks, [])
 
-      # `:associations` is factory-level only: association keys belong to one schema, so
-      # inheriting them from a module would apply another factory's keys to this struct.
-      association_specs =
-        FactoryMan.Associations.compile_specs!(
-          caller_module,
-          factory_name,
+      association_step =
+        FactoryMan._association_step(
+          assocs_ast,
+          user_var,
           merged_opts[:struct],
-          Keyword.get(opts, :associations, [])
+          caller_module,
+          factory_name
         )
 
-      association_step =
-        if association_specs == [] do
-          nil
-        else
-          quote do
-            unquote(user_var) =
-              FactoryMan.Associations.normalize_params!(
-                unquote(user_var),
-                unquote(Macro.escape(association_specs)),
-                unquote(caller_module),
-                unquote(factory_name)
-              )
-          end
-        end
+      if association_step do
+        defp unquote(FactoryMan._assocs_fn(factory_name))(), do: unquote(assocs_ast)
+      end
 
       projections = %{
         head_ast: head_ast,
@@ -843,12 +820,16 @@ defmodule FactoryMan do
 
         # Implementation (with pattern matching if needed, no default)
         def unquote({build_fn, [], [arg_ast_no_default]}) do
-          unquote(user_var) =
-            FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(unquote(user_var))
+          FactoryMan.Associations.track_factory(__MODULE__, unquote(factory_name), fn ->
+            unquote(user_var) =
+              FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(
+                unquote(user_var)
+              )
 
-          unquote(block)
-          |> FactoryMan.evaluate_lazy_attributes()
-          |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
+            unquote(block)
+            |> FactoryMan.evaluate_lazy_attributes()
+            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
+          end)
         end
 
         Code.eval_quoted(
@@ -869,42 +850,46 @@ defmodule FactoryMan do
           # Standard: the body returns a params map that is run through the params-stage hooks
           # and lazy evaluation, then converted with struct!/2.
           def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
-            FactoryMan._validate_params!(
-              unquote(user_var),
-              unquote(strict),
-              unquote(merged_opts[:struct]),
-              unquote(factory_name)
-            )
-
-            unquote(user_var) =
-              FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(
-                unquote(user_var)
+            FactoryMan.Associations.track_factory(__MODULE__, unquote(factory_name), fn ->
+              FactoryMan._validate_params!(
+                unquote(user_var),
+                unquote(strict),
+                unquote(merged_opts[:struct]),
+                unquote(factory_name)
               )
 
-            unquote(association_step)
+              unquote(user_var) =
+                FactoryMan.get_hook_handler(unquote(hooks), :before_build_params).(
+                  unquote(user_var)
+                )
 
-            unquote(block)
-            |> FactoryMan.evaluate_lazy_attributes()
-            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
-            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :before_build_struct).(&1))
-            |> then(&struct!(unquote(merged_opts[:struct]), &1))
-            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
+              unquote(association_step)
+
+              unquote(block)
+              |> FactoryMan.evaluate_lazy_attributes()
+              |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_params).(&1))
+              |> then(&FactoryMan.get_hook_handler(unquote(hooks), :before_build_struct).(&1))
+              |> then(&struct!(unquote(merged_opts[:struct]), &1))
+              |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
+            end)
           end
         else
           # body: :struct: the body returns the struct directly.
           def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
-            FactoryMan._validate_params!(
-              unquote(user_var),
-              unquote(strict),
-              unquote(merged_opts[:struct]),
-              unquote(factory_name)
-            )
+            FactoryMan.Associations.track_factory(__MODULE__, unquote(factory_name), fn ->
+              FactoryMan._validate_params!(
+                unquote(user_var),
+                unquote(strict),
+                unquote(merged_opts[:struct]),
+                unquote(factory_name)
+              )
 
-            unquote(association_step)
+              unquote(association_step)
 
-            unquote(block)
-            |> FactoryMan.evaluate_lazy_attributes()
-            |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
+              unquote(block)
+              |> FactoryMan.evaluate_lazy_attributes()
+              |> then(&FactoryMan.get_hook_handler(unquote(hooks), :after_build_struct).(&1))
+            end)
           end
         end
 
@@ -1011,6 +996,10 @@ defmodule FactoryMan do
   functions, (e.g. `build_admin_user_struct`), you may specify a custom name to use when
   generating the factory functions (e.g. `as: :admin` -> `build_admin_struct`)
 
+  - `:assocs` - Association builders resolved before the variant body, with the same shape as
+  the `deffactory` option. The base factory reuses the resolved structs, so a variant can build
+  an association differently from its base. Requires a base factory with an Ecto schema `struct:`.
+
   Variants are registered under their full name, so a variant can itself serve as the base of
   another variant (e.g. `defvariant senior(params \\\\ %{}), for: :admin_user`).
   """
@@ -1026,8 +1015,11 @@ defmodule FactoryMan do
     has_default = extraction.has_default
     plain_var_ast = extraction.plain_var
 
+    _validate_opts!(opts, [:for, :as, :assocs], "defvariant #{variant_name}")
+    {assocs_ast, opts} = pop_assocs(opts)
     base_factory_name = opts[:for] || raise ArgumentError, "defvariant requires the :for option"
     as_name = opts[:as]
+    caller_module = __CALLER__.module
 
     quote bind_quoted: [
             variant_name: variant_name,
@@ -1039,6 +1031,8 @@ defmodule FactoryMan do
             has_pattern_match: has_pattern_match,
             has_default: has_default,
             plain_var_ast: Macro.escape(plain_var_ast, unquote: true),
+            caller_module: caller_module,
+            assocs_ast: Macro.escape(assocs_ast, unquote: true),
             block: Macro.escape(block, unquote: true)
           ] do
       # Look up the base factory's registered metadata
@@ -1058,6 +1052,43 @@ defmodule FactoryMan do
       # The :as option overrides this combined name.
       full_name = as_name || :"#{variant_name}_#{base_factory_name}"
 
+      root_name =
+        Enum.find_value(@factory_man_variant_roots, base_factory_name, fn
+          {^base_factory_name, root} -> root
+          _ -> nil
+        end)
+
+      @factory_man_variant_roots {full_name, root_name}
+
+      # A variant's associations resolve before the variant body. The base factory then reuses
+      # the resolved structs. The base's strict check runs first, so a bad key fails before
+      # anything is built.
+      association_step =
+        if assocs_ast do
+          quote do
+            FactoryMan._validate_params!(
+              unquote(user_var),
+              unquote(FactoryMan._parse_strict!(Keyword.get(base_opts, :strict, false))),
+              unquote(base_opts[:struct]),
+              unquote(base_factory_name)
+            )
+
+            unquote(
+              FactoryMan._association_step(
+                assocs_ast,
+                user_var,
+                base_opts[:struct],
+                caller_module,
+                full_name
+              )
+            )
+          end
+        end
+
+      if association_step do
+        defp unquote(FactoryMan._assocs_fn(full_name))(), do: unquote(assocs_ast)
+      end
+
       projections = %{
         head_ast: head_ast,
         plain_var: plain_var_ast,
@@ -1075,8 +1106,15 @@ defmodule FactoryMan do
         def unquote({build_fn, [], [head_ast]})
 
         def unquote({build_fn, [], [arg_ast_no_default]}) do
-          unquote(block)
-          |> unquote(base_build_fn)()
+          FactoryMan.Associations.track_factory(
+            __MODULE__,
+            unquote(full_name),
+            unquote(root_name),
+            fn ->
+              unquote(block)
+              |> unquote(base_build_fn)()
+            end
+          )
         end
 
         Code.eval_quoted(
@@ -1094,8 +1132,17 @@ defmodule FactoryMan do
         def unquote({build_struct_fn, [], [head_ast]})
 
         def unquote({build_struct_fn, [], [arg_ast_no_default]}) do
-          unquote(block)
-          |> unquote(:"build_#{base_factory_name}_struct")()
+          FactoryMan.Associations.track_factory(
+            __MODULE__,
+            unquote(full_name),
+            unquote(root_name),
+            fn ->
+              unquote(association_step)
+
+              unquote(block)
+              |> unquote(:"build_#{base_factory_name}_struct")()
+            end
+          )
         end
 
         Code.eval_quoted(
@@ -1134,12 +1181,13 @@ defmodule FactoryMan do
             __ENV__
           )
 
-          # Transform params via variant body, then delegate to base insert
+          # Build through the variant, then insert through the base factory's pipeline
           @doc "Builds the corresponding struct and inserts it. `repo_insert_opts` are passed to the repo's `insert!/2`."
-          def unquote(insert_fn)(unquote(arg_ast_no_default), repo_insert_opts)
+          def unquote(insert_fn)(unquote(plain_var_ast), repo_insert_opts)
               when is_list(repo_insert_opts) do
-            unquote(block)
-            |> unquote(:"insert_#{base_factory_name}")(repo_insert_opts)
+            unquote(user_var)
+            |> unquote(build_struct_fn)()
+            |> unquote(:"insert_#{base_factory_name}_struct")(repo_insert_opts)
           end
 
           Code.eval_quoted(
@@ -1167,6 +1215,44 @@ defmodule FactoryMan do
       # The base factory's opts describe the variant's generated functions accurately, since
       # variants delegate to the base pipeline.
       @factory_man_registry {full_name, base_opts}
+    end
+  end
+
+  # `assocs:` is code, not a compile-time value: it may hold local captures and anonymous
+  # functions, so it is popped from the options AST and compiled into its own function.
+  defp pop_assocs(opts) when is_list(opts) do
+    if Keyword.keyword?(opts), do: Keyword.pop(opts, :assocs), else: {nil, opts}
+  end
+
+  defp pop_assocs(opts), do: {nil, opts}
+
+  @doc false
+  def _reject_non_literal_assocs!(opts) do
+    if is_list(opts) and Keyword.keyword?(opts) and Keyword.has_key?(opts, :assocs) do
+      raise ArgumentError, "assocs: must be written directly in the deffactory/defvariant call"
+    end
+  end
+
+  @doc false
+  def _assocs_fn(factory_name), do: :"__factory_man_assocs_#{factory_name}__"
+
+  # The step that resolves declared associations into the params variable, or `nil` without
+  # `assocs:`. Validation of the declaration itself happens at build time.
+  @doc false
+  def _association_step(nil, _user_var, _schema, _module, _factory_name), do: nil
+
+  def _association_step(_assocs_ast, user_var, schema, module, factory_name) do
+    FactoryMan.Associations.validate_schema!(schema, module, factory_name)
+
+    quote do
+      unquote(user_var) =
+        FactoryMan.Associations.resolve_assocs!(
+          unquote(user_var),
+          unquote(_assocs_fn(factory_name))(),
+          unquote(schema),
+          unquote(module),
+          unquote(factory_name)
+        )
     end
   end
 
@@ -1269,106 +1355,56 @@ defmodule FactoryMan do
   defp plain_var({var_name, _, _}) when is_atom(var_name), do: Macro.var(var_name, nil)
 
   @doc """
-  Resolve one association from a factory's params.
+  Resolve one association from a params map.
 
-  Reads `key` from the `params` map and resolves it:
+  Reads `key` from `params` and resolves it with the same rules as the `assocs:` option:
 
   | Caller supplies | Result |
   | --- | --- |
-  | key absent | builds with `:inherit` as params (or `nil` with `default: nil`) |
+  | key absent | treated as `default:` (`%{}` unless set), then resolved |
   | `nil` | `nil` |
-  | params map | builds, merged over `:inherit` |
-  | a struct | reused as-is (checked against `:struct`) |
+  | params map | built with `build_fun` |
+  | a struct | reused unchanged, `build_fun` not called |
 
-  An explicit `nil` always resolves to `nil`. A factory that needs a value regardless can say so
-  locally: `FactoryMan.assoc(params, :author, &build_author_struct/1) || build_author_struct()`.
-
-  For ordinary Ecto factory associations, prefer the `:associations` factory option.
-
-  `build_fun` is any 1-arity function that receives params for a new associated value.
+  Use it where `assocs:` does not fit: an association resolved from a value computed in the body,
+  a plain helper function, or inside a builder. `params` is not modified; put the result back, or
+  drop the key, before a final `Map.merge(base_params, params)`.
 
   ## Options
 
-  - `:struct` - validate supplied structs and builder results against this module.
-  - `:inherit` - params merged below a supplied params map before building (default: `%{}`).
-  - `:default` - what an absent key resolves to: `:build` (default) or `nil`.
+  - `:default` - what an absent key is treated as: `nil` or a params map (default: `%{}`).
 
   ## Examples
 
-      FactoryMan.assoc(params, :author, &build_author_struct/1, struct: Author)
-      FactoryMan.assoc(params, :editor, &build_author_struct/1, default: nil)
-      FactoryMan.assoc(params, :author, &build_author_struct/1, inherit: %{role: "writer"})
+      FactoryMan.assoc(params, :author, &build_user_struct/1)
+      FactoryMan.assoc(params, :editor, &build_user_struct/1, default: nil)
+      FactoryMan.assoc(params, :author, &build_user_struct(Map.merge(%{role: "writer"}, &1)))
   """
   @spec assoc(map(), atom(), (map() -> any()), keyword()) :: any()
   def assoc(params, key, build_fun, opts \\ []) do
-    FactoryMan.Associations.resolve_key(params, key, build_fun, opts)
+    FactoryMan.Associations.resolve_key(params, key, build_fun, opts, :one)
   end
 
   @doc """
-  Resolve a list association from a factory's params.
+  Resolve a list association from a params map.
 
-  Reads `key` from the `params` map. An absent key resolves to `[]`, and an explicit `nil` raises
-  (use `[]` for no associated values). Each list item must be a params map or an existing struct;
-  mixed lists are supported and preserve their order.
+  Reads `key` from `params`. An absent key is treated as `default:` (`[]` unless set). An explicit
+  `nil` raises (use `[]` for no associated values). Each list item must be a params map (built with
+  `build_fun`) or a struct (reused unchanged); order is preserved.
 
   ## Options
 
-  - `:struct` - validate supplied structs and builder results against this module.
-  - `:inherit` - params merged below each supplied params map before building (default: `%{}`).
+  - `:default` - what an absent key is treated as: a list of params maps (default: `[]`).
 
   ## Examples
 
-      FactoryMan.assoc_list(params, :tags, &build_tag_struct/1, struct: Tag)
+      FactoryMan.assoc_list(params, :tags, &build_tag_struct/1)
+      FactoryMan.assoc_list(params, :tags, &build_tag_struct/1, default: [%{name: "elixir"}])
   """
   @spec assoc_list(map(), atom(), (map() -> any()), keyword()) :: list()
   def assoc_list(params, key, build_fun, opts \\ []) do
-    FactoryMan.Associations.resolve_list_key(params, key, build_fun, opts)
+    FactoryMan.Associations.resolve_key(params, key, build_fun, opts, :many)
   end
-
-  @doc """
-  Resolve one association value.
-
-  The value form of `assoc/3,4`, for helpers that already hold a value rather than a params map:
-  a params map is passed to `build_fun`, an existing struct is reused without calling the builder,
-  and `nil` resolves to `nil`.
-
-  ## Options
-
-  - `:struct` - validate supplied structs and builder results against this module.
-  - `:inherit` - params merged below a supplied params map before building (default: `%{}`).
-
-  ## Examples
-
-      FactoryMan.resolve_assoc(%{name: "Ann"}, &build_author_struct/1)
-      FactoryMan.resolve_assoc(author_or_params, &build_author_struct/1, struct: Author)
-  """
-  @spec resolve_assoc(any(), (map() -> any()), keyword()) :: any()
-  def resolve_assoc(value, build_fun, opts \\ []) do
-    FactoryMan.Associations.resolve(value, build_fun, opts)
-  end
-
-  @doc """
-  Resolve a list of association values.
-
-  The value form of `assoc_list/3,4`. Each item must be a params map or an existing struct; `nil`
-  (as the list itself or as an item) raises.
-
-  ## Options
-
-  - `:struct` - validate supplied structs and builder results against this module.
-  - `:inherit` - params merged below each supplied params map before building (default: `%{}`).
-
-  ## Examples
-
-      FactoryMan.resolve_assoc_list(
-        [%{body: "a"}, existing_comment],
-        &build_comment_struct/1,
-        struct: Comment
-      )
-  """
-  @spec resolve_assoc_list(any(), (map() -> any()), keyword()) :: list()
-  def resolve_assoc_list(values, build_fun, opts \\ []),
-    do: FactoryMan.Associations.resolve_list(values, build_fun, opts)
 
   @doc false
   @spec evaluate_lazy_attributes(any) :: any
@@ -1445,6 +1481,59 @@ defmodule FactoryMan do
   end
 
   def _validate_params!(params, _strict, _struct_module, _factory_name), do: params
+
+  # Parses `:strict` into `false` (disabled) or a list of allowed extra keys
+  @doc false
+  def _parse_strict!(false), do: false
+  def _parse_strict!(true), do: []
+
+  def _parse_strict!([allow: allow] = strict) when is_list(allow) do
+    if Enum.all?(allow, &is_atom/1) do
+      allow
+    else
+      raise ArgumentError,
+            "invalid :strict option: #{inspect(strict)}. Allowed extra keys must be atoms."
+    end
+  end
+
+  def _parse_strict!(other) do
+    raise ArgumentError,
+          "invalid :strict option: #{inspect(other)}. " <>
+            "Expected true, false (default), or [allow: [keys]]."
+  end
+
+  @doc false
+  def _validate_module_opts!(opts, module) do
+    if is_list(opts) and Keyword.has_key?(opts, :assocs) do
+      raise ArgumentError,
+            "invalid module option :assocs in #{inspect(module)}. Association keys belong to " <>
+              "a single schema, so assocs: is set per factory, not per module."
+    end
+
+    _validate_opts!(
+      opts,
+      [:repo, :extends, :hooks, :body, :strict, :insert?, :struct],
+      "use FactoryMan in #{inspect(module)}"
+    )
+  end
+
+  @doc false
+  def _validate_opts!(opts, allowed, subject) do
+    unless is_list(opts) and Keyword.keyword?(opts) do
+      raise ArgumentError,
+            "expected options for #{subject} to be a keyword list, got: #{inspect(opts)}"
+    end
+
+    case Keyword.keys(opts) -- allowed do
+      [] ->
+        opts
+
+      unknown ->
+        raise ArgumentError,
+              "unknown options #{inspect(unknown)} for #{subject}. " <>
+                "Allowed options: #{inspect(allowed)}"
+    end
+  end
 
   @doc false
   def _merge_opts(parent_opts, child_opts) do

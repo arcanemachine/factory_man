@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - Unreleased
+
+### Added
+
+- **Breaking:** The `assocs:` factory option replaces `associations:`. It maps each association
+  key to a builder: a 1-arity function (local or remote capture, or anonymous function), a
+  2-arity function that also receives the factory params with earlier keys resolved, or
+  `{builder, default: value}`. Every declared key is resolved before the factory body, so the body
+  always receives it resolved and a final `Map.merge(base_params, params)` no longer restores the
+  caller's raw input. The builder is the default: an absent key is built with `%{}` (or resolves
+  to `[]` for a plural association) unless `default:` says otherwise.
+- `defvariant` accepts `assocs:`. The variant resolves its keys before its body; the base factory
+  reuses the resulting structs.
+- `assocs:` is evaluated at build time, so it can hold local captures, anonymous functions, and
+  shared declarations returned by a function call. It is validated when the factory first builds.
+- `assocs:` checks that supplied structs and builder results are the association's schema. A
+  builder for a singular association may return `nil`.
+- `{builder, required: true}` in `assocs:` makes a singular association resolve to a non-nil
+  value: a caller's `nil`, or a builder that returns `nil`, raises. An absent key still builds.
+- A recursion guard raises when a default build starts again inside itself (a self-referential
+  or mutually recursive association), instead of recursing forever. It covers `assocs:`,
+  `assoc/3,4`, and `assoc_list/3,4`, and the error shows the build path.
+- `assoc/3,4` accepts a params map as `default:`, and `assoc_list/3,4` accepts `default:` with a
+  list of params maps.
+
+### Changed
+
+- **Breaking:** `use FactoryMan`, `deffactory`, and `defvariant` raise on unknown options instead
+  of ignoring them.
+
+### Removed
+
+- **Breaking:** The `associations:` option and its factory-name targets (`:user`,
+  `{Module, :user}`). Use `assocs:` with function captures.
+- **Breaking:** `FactoryMan.resolve_assoc/2,3` and `FactoryMan.resolve_assoc_list/2,3`.
+- **Breaking:** The `struct:` and `inherit:` options of `assoc/3,4` and `assoc_list/3,4`. Close
+  over extra params in the builder instead: `&build_user_struct(Map.merge(%{role: "writer"}, &1))`.
+
 ## [0.13.0] - 2026-09-19
 
 ### Added
