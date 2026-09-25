@@ -110,7 +110,7 @@ defmodule FactoryManDemo.Factory.ChildFactory do
     %User{username: username}
   end
 
-  deffactory non_insertable(params \\ %{}), struct: User, insert?: false do
+  deffactory non_insertable(params \\ %{}), struct: User, insert: false do
     base_params = %{username: "user-#{System.os_time()}"}
 
     Map.merge(base_params, params)

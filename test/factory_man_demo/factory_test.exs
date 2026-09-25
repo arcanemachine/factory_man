@@ -23,7 +23,7 @@ defmodule FactoryManDemo.FactoryTest do
 
     # Factory-level options override inherited ones
     non_insertable_opts = ChildFactory.__factory_man__(:opts, :non_insertable)
-    assert Keyword.get(non_insertable_opts, :insert?) == false
+    assert Keyword.get(non_insertable_opts, :insert) == false
     assert Keyword.get(non_insertable_opts, :repo) == FactoryManDemo.Repo
   end
 

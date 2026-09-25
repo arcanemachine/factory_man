@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - Unreleased
+
+### Added
+
+- `insert:` chooses the default insert target, used by `insert_*`, `insert_*_list`, and
+  `insert_*_struct`: `:ecto` (the default, the repo's `insert!/2`), `false`, or a remote capture
+  of arity 2 such as `&MyApp.Factory.put!/2`. A capture is called with the built struct and the
+  caller's options, and works for any struct factory, including plain structs and embedded
+  schemas. The insert hooks run around it.
+- `insert_via:` adds named insert targets: `insert_via: [search: &MyApp.Factory.index!/2]`
+  generates `insert_user_via_search/0,1,2`, `insert_user_via_search_list/1,2,3`, and
+  `insert_user_struct_via_search/1,2` for every struct factory and variant. Targets run no hooks.
+  Lower levels add a target, replace an inherited one by name, or remove it with `name: false`.
+- `__factory_man__(:opts)` and `__factory_man__(:opts, name)` include the resolved `insert:` and
+  `insert_via:`.
+
+### Changed
+
+- **Breaking:** `insert?:` is replaced by `insert:`. Replace `insert?: false` with
+  `insert: false`.
+- **Breaking:** two generated functions with the same name and arity (e.g. from a variant
+  `admin` of `user` and a factory `admin_user`), or a generated function with the name of a
+  function defined earlier in the module, raise at compile time, naming both sources. Before,
+  they only produced compiler warnings, and the second definition joined the first.
+
 ## [0.16.0] - 2026-09-24
 
 ### Added

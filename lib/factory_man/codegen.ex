@@ -102,35 +102,11 @@ defmodule FactoryMan.Codegen do
   end
 
   @doc """
-  The doc of the generated `insert_*` functions, which take one option list shared by
-  FactoryMan and the repo.
-  """
-  def insert_doc do
-    """
-    Builds the corresponding struct and inserts it into the database.
-
-    `opts` is one keyword list: FactoryMan uses `:variants`, and every other option is passed to
-    the repo's `insert!/2` unchanged.
-
-        insert_user(%{username: "alice"}, variants: [:admin], returning: true)
-        #                                 └─ FactoryMan ───┘  └─ Repo.insert!/2 ┘
-    """
-  end
-
-  @doc """
   Whether `module` is a compiled Ecto schema.
   """
   def ecto_schema?(module) do
     match?({:module, _}, Code.ensure_compiled(module)) and
       function_exported?(module, :__schema__, 1)
-  end
-
-  @doc """
-  Whether `module` is an Ecto schema that can be inserted (has a source table and a repo is
-  configured). Embedded schemas have no source and are not insertable.
-  """
-  def insertable_ecto_schema?(module, repo) do
-    ecto_schema?(module) and not is_nil(repo) and module.__schema__(:source) != nil
   end
 
   @doc """
@@ -295,24 +271,86 @@ defmodule FactoryMan.Codegen do
   end
 
   @doc """
-  Head declaration and convenience arities for `insert_*`. The 2-arity implementation clause
-  differs between `deffactory` and `defvariant` and stays in the macros; it must be defined
-  directly after these.
+  The names of the `insert_*` and `insert_*_struct` functions of factory or variant `name` for
+  one insert target: `nil` for the default target, or the name of an `insert_via:` target.
   """
-  def insert_convenience_fns(insert_fn, projections) do
+  def insert_names(name, nil = _target_name), do: {:"insert_#{name}", :"insert_#{name}_struct"}
+
+  def insert_names(name, target_name),
+    do: {:"insert_#{name}_via_#{target_name}", :"insert_#{name}_struct_via_#{target_name}"}
+
+  @doc """
+  Checks that no function defined by the head `def name(head_ast)` is defined yet in `module`
+  (see `define/3`).
+  """
+  def claim_head!(module, name, head_ast, source) do
+    FactoryMan._claim_names!(module, defined_names({:def, [], [{name, [], [head_ast]}]}), source)
+  end
+
+  @doc """
+  The `insert_*` family of a factory or variant: `insert_*/0,1,2` and `insert_*_list/1,2,3`.
+  `insert_*/2` builds with `build_struct_fn`, then inserts with `insert_struct_fn`. `target` is
+  what `insert_struct_fn` inserts with (`{:ecto, repo}` or a capture), for the docs.
+  """
+  def insert_fns(insert_fn, build_struct_fn, insert_struct_fn, target, projections) do
+    implementation =
+      quote do
+        @doc unquote(insert_doc(target))
+        def unquote(insert_fn)(unquote(projections.plain_var), opts) when is_list(opts) do
+          {variants, insert_opts} = FactoryMan._pop_variants!(opts, unquote("#{insert_fn}/2"))
+
+          unquote(projections.user_var)
+          |> unquote(build_struct_fn)(variants: variants)
+          |> unquote(insert_struct_fn)(insert_opts)
+        end
+      end
+
+    block([
+      insert_convenience_fns(insert_fn, target, projections),
+      implementation,
+      insert_list_fns(insert_fn, :"#{insert_fn}_list", projections)
+    ])
+  end
+
+  defp insert_doc({:ecto, repo} = target) do
+    """
+    Builds the corresponding struct and inserts it with `#{describe_target(target)}`.
+
+    `opts` is one keyword list: FactoryMan uses `:variants`, and every other option is passed to
+    `#{inspect(repo)}.insert!/2` unchanged.
+
+        insert_user(%{username: "alice"}, variants: [:admin], returning: true)
+        #                                 └─ FactoryMan ───┘  └─ Repo.insert!/2 ┘
+    """
+  end
+
+  defp insert_doc(target) do
+    """
+    Builds the corresponding struct and inserts it with `#{describe_target(target)}`.
+
+    `opts` is one keyword list: FactoryMan uses `:variants`, and every other option is passed to
+    `#{describe_target(target)}` unchanged.
+    """
+  end
+
+  # Head declaration and convenience arities for `insert_*`. The 2-arity implementation must be
+  # defined directly after these.
+  defp insert_convenience_fns(insert_fn, target, projections) do
     head =
       quote do
-        @doc "Builds the corresponding struct and inserts it into the database."
+        @doc unquote(
+               "Builds the corresponding struct and inserts it with " <>
+                 "`#{describe_target(target)}`."
+             )
         def unquote(insert_fn)(unquote(projections.head_ast))
       end
 
     # Pattern matches require specific keys, so we can't call with %{}
-    repo_opts_convenience =
+    opts_convenience =
       if not projections.has_pattern_match do
         quote do
-          def unquote(insert_fn)(repo_insert_opts)
-              when is_list(repo_insert_opts) do
-            unquote(insert_fn)(%{}, repo_insert_opts)
+          def unquote(insert_fn)(insert_opts) when is_list(insert_opts) do
+            unquote(insert_fn)(%{}, insert_opts)
           end
         end
       end
@@ -324,13 +362,11 @@ defmodule FactoryMan.Codegen do
         end
       end
 
-    block([head, repo_opts_convenience, params_convenience])
+    block([head, opts_convenience, params_convenience])
   end
 
-  @doc """
-  `insert_*_list` functions. Each item delegates to `insert_<name>/2`.
-  """
-  def insert_list_fns(insert_fn, insert_list_fn, projections) do
+  # `insert_*_list` functions. Each item delegates to `insert_<name>/2`.
+  defp insert_list_fns(insert_fn, insert_list_fn, projections) do
     doc =
       "Inserts `count` records, each built and inserted independently by `#{insert_fn}/2`, " <>
         "which takes the same options."
@@ -345,9 +381,9 @@ defmodule FactoryMan.Codegen do
           end
 
           @doc unquote(doc)
-          def unquote(insert_list_fn)(count, repo_insert_opts)
-              when is_integer(count) and count >= 0 and is_list(repo_insert_opts) do
-            unquote(insert_list_fn)(count, %{}, repo_insert_opts)
+          def unquote(insert_list_fn)(count, insert_opts)
+              when is_integer(count) and count >= 0 and is_list(insert_opts) do
+            unquote(insert_list_fn)(count, %{}, insert_opts)
           end
         end
       end
@@ -369,10 +405,10 @@ defmodule FactoryMan.Codegen do
         end
 
         @doc unquote(doc)
-        def unquote(insert_list_fn)(count, params, repo_insert_opts)
+        def unquote(insert_list_fn)(count, params, insert_opts)
             when is_integer(count) and count >= 0 and is_map(params) and
-                   is_list(repo_insert_opts) do
-          Stream.repeatedly(fn -> unquote(insert_fn)(params, repo_insert_opts) end)
+                   is_list(insert_opts) do
+          Stream.repeatedly(fn -> unquote(insert_fn)(params, insert_opts) end)
           |> Enum.take(count)
         end
       end
@@ -381,71 +417,144 @@ defmodule FactoryMan.Codegen do
   end
 
   @doc """
-  `insert_*_struct` for `deffactory`: inserts an already-built struct through the factory's
-  insert pipeline (`before_insert` hook, repo insert, `after_insert` hook). `insert_*` delegates
-  here after building, so the pipeline is defined in one place.
+  `insert_*_struct` for `deffactory`: inserts an already-built struct with `target`
+  (`{:ecto, repo}` or a capture), between the `before_insert` and `after_insert` hooks in
+  `hooks`. The `:ecto` insert first checks that the struct has not been inserted. `insert_*`
+  delegates here after building, so the insert is defined in one place.
   """
-  def insert_struct_fns(insert_struct_fn, struct_module, repo, hooks, factory_name) do
+  def insert_struct_fns(insert_struct_fn, insert_fn, struct_module, target, hooks, doc) do
+    guard = ecto_guard(insert_struct_fn, target)
+
+    before_insert = hook_pipe(quote(do: struct), hooks, :before_insert)
+
+    insert =
+      case target do
+        {:ecto, repo} ->
+          quote do: unquote(repo).insert!(unquote(before_insert), insert_opts)
+
+        capture ->
+          {:module, module} = Function.info(capture, :module)
+          {:name, name} = Function.info(capture, :name)
+
+          quote do: unquote(module).unquote(name)(unquote(before_insert), insert_opts)
+      end
+
     quote do
-      @doc unquote(insert_struct_doc(struct_module, factory_name))
-      def unquote(insert_struct_fn)(%unquote(struct_module){} = struct, repo_insert_opts \\ [])
-          when is_list(repo_insert_opts) do
-        FactoryMan._ensure_insertable!(
-          struct,
-          repo_insert_opts,
-          unquote(insert_struct_fn),
-          unquote(:"insert_#{factory_name}")
+      @doc unquote(doc)
+      def unquote(insert_struct_fn)(%unquote(struct_module){} = struct, insert_opts \\ [])
+          when is_list(insert_opts) do
+        FactoryMan._reject_struct_variants!(
+          insert_opts,
+          unquote("#{insert_struct_fn}/2"),
+          unquote("#{insert_fn}/2")
         )
 
-        unquote(
-          hook_pipe(
-            quote(
-              do:
-                unquote(repo).insert!(
-                  unquote(hook_pipe(quote(do: struct), hooks, :before_insert)),
-                  repo_insert_opts
-                )
-            ),
-            hooks,
-            :after_insert
-          )
-        )
+        unquote(guard)
+
+        unquote(hook_pipe(insert, hooks, :after_insert))
       end
     end
   end
 
   @doc """
-  `insert_*_struct` for `defvariant`: delegates to the base factory's `insert_*_struct`, since
-  a variant's preprocessor has no role once the struct is built.
+  `insert_*_struct` for `defvariant`: delegates to the base factory's `base_insert_struct_fn`,
+  since a variant's preprocessor has no role once the struct is built. The `:ecto` check runs here
+  too, so its error names the function the caller called.
   """
   def insert_struct_delegate_fns(
         insert_struct_fn,
+        insert_fn,
         struct_module,
+        target,
         base_insert_struct_fn,
-        base_factory_name
+        doc
       ) do
-    insert_fn = String.to_atom(String.replace_suffix("#{insert_struct_fn}", "_struct", ""))
-
     quote do
-      @doc unquote(insert_struct_doc(struct_module, base_factory_name))
-      def unquote(insert_struct_fn)(%unquote(struct_module){} = struct, repo_insert_opts \\ [])
-          when is_list(repo_insert_opts) do
-        FactoryMan._ensure_insertable!(
-          struct,
-          repo_insert_opts,
-          unquote(insert_struct_fn),
-          unquote(insert_fn)
+      @doc unquote(doc)
+      def unquote(insert_struct_fn)(%unquote(struct_module){} = struct, insert_opts \\ [])
+          when is_list(insert_opts) do
+        FactoryMan._reject_struct_variants!(
+          insert_opts,
+          unquote("#{insert_struct_fn}/2"),
+          unquote("#{insert_fn}/2")
         )
 
-        unquote(base_insert_struct_fn)(struct, repo_insert_opts)
+        unquote(ecto_guard(insert_struct_fn, target))
+
+        unquote(base_insert_struct_fn)(struct, insert_opts)
       end
     end
   end
 
-  defp insert_struct_doc(struct_module, pipeline_name) do
-    "Inserts an already-built `#{inspect(struct_module)}` through the `:#{pipeline_name}` " <>
-      "factory's insert pipeline (`before_insert` hook, repo insert, `after_insert` hook)."
+  defp ecto_guard(insert_struct_fn, {:ecto, _repo}) do
+    quote do
+      FactoryMan._ensure_not_inserted!(struct, unquote("#{insert_struct_fn}/2"))
+    end
   end
+
+  defp ecto_guard(_insert_struct_fn, _capture), do: nil
+
+  @doc """
+  The doc of an `insert_*_struct` function. `hooks?` is `true` for the default target, whose
+  insert runs between the `factory_name` factory's insert hooks.
+  """
+  def insert_struct_doc(struct_module, target, factory_name, hooks?) do
+    base =
+      "Inserts an already-built `#{inspect(struct_module)}` with `#{describe_target(target)}`"
+
+    if hooks? do
+      base <>
+        ", between the `:#{factory_name}` factory's `before_insert` and `after_insert` hooks."
+    else
+      base <> ". Insert hooks do not run."
+    end
+  end
+
+  defp describe_target({:ecto, repo}), do: "#{inspect(repo)}.insert!/2"
+
+  defp describe_target(capture) do
+    {:module, module} = Function.info(capture, :module)
+    {:name, name} = Function.info(capture, :name)
+
+    "#{inspect(module)}.#{name}/2"
+  end
+
+  @doc """
+  Defines the functions in `quoted` in `env`'s module, after checking that none of them is
+  already defined there (see `FactoryMan._claim_names!/3`). `source` names the factory or variant
+  that generates them, for the error message.
+  """
+  def define(quoted, env, source) do
+    FactoryMan._claim_names!(env.module, defined_names(quoted), source)
+
+    Code.eval_quoted(quoted, [], env)
+  end
+
+  @doc """
+  The `{name, arity}` pairs that the `def`s in `quoted` define, including the arities that
+  default arguments add.
+  """
+  def defined_names(quoted) do
+    {_quoted, names} =
+      Macro.prewalk(quoted, [], fn
+        {:def, _meta, [head | _body]} = node, names -> {node, names ++ head_names(head)}
+        node, names -> {node, names}
+      end)
+
+    Enum.uniq(names)
+  end
+
+  defp head_names({:when, _meta, [call | _guards]}), do: head_names(call)
+
+  defp head_names({name, _meta, args}) when is_atom(name) and is_list(args) do
+    defaults = Enum.count(args, &match?({:\\, _meta, _default}, &1))
+
+    for arity <- (length(args) - defaults)..length(args), do: {name, arity}
+  end
+
+  # A head without parentheses (`def name do`)
+  defp head_names({name, _meta, context}) when is_atom(name) and is_atom(context),
+    do: [{name, 0}]
 
   defp block(parts) do
     {:__block__, [], Enum.reject(parts, &is_nil/1)}

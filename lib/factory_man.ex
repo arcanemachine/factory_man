@@ -22,8 +22,9 @@ defmodule FactoryMan do
   ## Generated Functions
 
   For a factory named `:user` with `struct: User` and a plain params argument that defaults to an empty
-  map, the following functions are available. Insert functions require a configured repo, a table-backed
-  Ecto schema, and `insert?` not set to `false`.
+  map, the following functions are available. The insert functions shown use the default insert
+  target, the repo's `insert!/2`, which requires a configured repo and a table-backed Ecto schema
+  (see Insert Targets).
 
   | Function                              | Returns          | Purpose                              |
   | ------------------------------------- | ---------------- | ------------------------------------ |
@@ -43,7 +44,7 @@ defmodule FactoryMan do
   Every builder also takes options after its params (`build_user_struct/2`,
   `build_user_struct_list/3`, and so on). The only builder option is `variants:` (see Variant
   Factories). Insert functions take one keyword list: FactoryMan uses `:variants`, and every other
-  option is passed to the repo's `insert!/2` unchanged:
+  option is passed to the insert target (here, the repo's `insert!/2`) unchanged:
 
   ```elixir
   insert_user(%{username: "alice"}, variants: [:admin], returning: true, prefix: "tenant_a")
@@ -56,16 +57,17 @@ defmodule FactoryMan do
 
   What gets generated depends on the factory configuration:
 
-  | Factory configuration    | Value builders | Params builders | Struct builders | Inserts            |
-  | ------------------------ | -------------- | --------------- | --------------- | ------------------ |
-  | No `struct:` option      | Yes            | No              | No              | No                 |
-  | Plain struct             | No             | Yes             | Yes             | No                 |
-  | Table-backed Ecto schema | No             | Yes             | Yes             | Yes, when enabled  |
-  | Embedded schema          | No             | Yes             | Yes             | No                 |
+  | Factory configuration    | Value builders | Params builders | Struct builders | Inserts                       |
+  | ------------------------ | -------------- | --------------- | --------------- | ----------------------------- |
+  | No `struct:` option      | Yes            | No              | No              | No                            |
+  | Plain struct             | No             | Yes             | Yes             | With an `insert:` capture     |
+  | Table-backed Ecto schema | No             | Yes             | Yes             | Yes, unless `insert: false`   |
+  | Embedded schema          | No             | Yes             | Yes             | With an `insert:` capture     |
 
   Value builders use `build_<name>` and `build_<name>_list`. Params builders include atom-keyed and
-  string-keyed functions. Inserts require a configured repo and `insert?` not set to `false`. Setting
-  `body: :struct` changes how the struct is built, not which function families are generated.
+  string-keyed functions. Any struct factory also gets an `insert_<name>_via_<target>` family for
+  each `insert_via:` target (see Insert Targets). Setting `body: :struct` changes how the struct is
+  built, not which function families are generated.
 
   The diagram shows the build pipeline with `body: :params`. Declared `assocs:` are resolved
   after `before_build_params` and before the factory body. Each function shown has a
@@ -241,11 +243,14 @@ defmodule FactoryMan do
   - `:repo` - Ecto repo for database operations
   - `:extends` - Parent factory module to inherit configuration from
   - `:hooks` - Hooks applied to all factories in the module, chained with inherited hooks
+  - `:insert` and `:insert_via` - The default and named insert targets (see Insert Targets)
 
   **Factory-level** (set with `deffactory`):
 
   - `:struct` - Ecto schema module (enables struct, params, and insert functions)
-  - `:insert?` - Set to `false` to skip insert functions
+  - `:insert` - The default insert target: `:ecto` (default), `false`, or a remote capture of
+    arity 2 (see Insert Targets)
+  - `:insert_via` - Named insert targets, as `name: capture` or `name: false` (see Insert Targets)
   - `:body` - What the factory body returns: `:params` (default, a params map) or `:struct`
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
@@ -262,6 +267,63 @@ defmodule FactoryMan do
   `:body` and `:strict` cascade from the module level and are ignored by non-struct factories.
   `:assocs` is factory-level only, because association keys belong to a single schema, and it
   requires an Ecto schema `struct:`. Unknown options raise.
+
+  ## Insert Targets
+
+  An insert target is the function that inserts a built struct. The default target, set with
+  `insert:`, is used by `insert_*`, `insert_*_list`, and `insert_*_struct`:
+
+  - `:ecto` (the default) - the repo's `insert!/2`. Generated for a table-backed Ecto schema when
+    a repo is configured; otherwise nothing is generated. Written on a factory that cannot be
+    inserted with Ecto, it raises.
+  - `false` - no default insert functions.
+  - A remote capture of arity 2, such as `&MyApp.Factory.put!/2` - generated for any struct
+    factory: plain structs, embedded schemas, and Ecto schemas. Anonymous functions and local
+    captures raise.
+
+  `insert_via:` adds named targets, each with its own family of functions:
+
+  ```elixir
+  use FactoryMan, repo: MyApp.Repo, insert_via: [search: &MyApp.Factory.index!/2]
+
+  deffactory user(params \\\\ %{}), struct: User do
+    Map.merge(%{username: FactoryMan.sequence("user")}, params)
+  end
+
+  insert_user()                        # MyApp.Repo.insert!/2, with the insert hooks
+  insert_user_via_search()             # MyApp.Factory.index!/2
+  insert_user_via_search_list(3)
+  insert_user_struct_via_search(user)
+  ```
+
+  An insert function receives the built struct and the caller's options (without `:variants`),
+  and returns the inserted struct. A store that takes no options ignores them:
+
+  ```elixir
+  def index!(struct, _opts) do
+    :ok = MyApp.Search.index(struct)
+
+    struct
+  end
+  ```
+
+  - `insert:` and `insert_via:` cascade like other options. `insert_via:` merges by name: a lower
+    level adds a target, replaces the inherited target of the same name, or removes it with
+    `name: false` (removing a target that is not inherited raises). The name `ecto` is reserved.
+  - `insert: false` removes the default family only; `insert_via:` targets remain.
+  - The insert hooks (`before_insert`, `after_insert`) run for the default target, not for
+    `insert_via:` targets. A target that needs more steps does them in its own function.
+  - The `:ecto` insert raises on a struct that has already been inserted. Captures and targets
+    do not check.
+  - A target receives the struct with any built associations still in place. The `:ecto` insert
+    cascades them; a capture or target stores them only if its function does. An
+    `after_build_struct` hook applies to every family.
+  - Variants get their base factory's targets, building through the variant.
+  - Both options apply to struct factories only: written on a non-struct factory they raise, and
+    inherited ones are ignored.
+  - `__factory_man__(:opts, name)` shows the resolved `insert:` and `insert_via:`.
+
+  The [Cookbook](cookbook.html) has recipes for inserting into other stores.
 
   ## Strict Params
 
@@ -347,6 +409,9 @@ defmodule FactoryMan do
     → before_insert → Repo.insert!() → after_insert
   ```
 
+  The insert hooks belong to the default insert target's functions (`insert_*`, `insert_*_list`,
+  and `insert_*_struct`). `insert_via:` targets run no hooks (see Insert Targets).
+
   With `body: :struct`, `assocs:` are resolved after params validation and before the body, and
   the struct the body returns is lazily evaluated. Params-stage hooks remain skipped. A variant
   resolves its own `assocs:` before its body, then delegates to the base builder, which reuses the
@@ -359,8 +424,8 @@ defmodule FactoryMan do
   `insert_user_struct/1,2` runs the same `before_insert` → insert → `after_insert` pipeline on
   an already-built struct. Use it after modifying a built struct, so records are shaped
   consistently no matter how they were constructed. A raw `Repo.insert!/2` would skip the
-  insert hooks. It raises on a struct that has already been inserted (or has been deleted); to
-  insert a copy on purpose (e.g. into another prefix), mark it as built first with
+  insert hooks. With the `:ecto` insert, it raises on a struct that has already been inserted (or
+  has been deleted); to insert a copy on purpose (e.g. into another prefix), mark it as built first with
   `Ecto.put_meta(struct, state: :built)`.
 
   ### Hook Reference
@@ -654,8 +719,8 @@ defmodule FactoryMan do
 
   ## Embedded Schemas
 
-  Factories for embedded schemas work like regular struct factories but without database
-  insertion:
+  Factories for embedded schemas work like regular struct factories, but are not inserted with
+  Ecto:
 
   ```elixir
   defmodule MyApp.Factories.Settings do
@@ -675,7 +740,8 @@ defmodule FactoryMan do
   ```
 
   Embedded schemas generate `build_*_struct`, `build_*_params`, and `build_*_string_params`, plus
-  their matching `*_list` functions. They do not generate insert functions.
+  their matching `*_list` functions. They generate insert functions only for an `insert:` capture
+  or `insert_via:` targets.
 
   ## Direct Struct Factories (`body: :struct`)
 
@@ -719,10 +785,10 @@ defmodule FactoryMan do
 
   ```elixir
   iex> MyApp.Factory.__factory_man__(:opts)
-  [repo: MyApp.Repo]
+  [insert_via: [], insert: :ecto, repo: MyApp.Repo]
 
   iex> MyApp.Factories.Users.__factory_man__(:opts, :user)
-  [repo: MyApp.Repo, struct: User]
+  [insert_via: [], insert: :ecto, repo: MyApp.Repo, struct: User]
 
   iex> MyApp.Factories.Users.__factory_man__(:factories)
   [:user, :admin_user]
@@ -778,6 +844,10 @@ defmodule FactoryMan do
       # of the variants it runs, the variants it extends first.
       Module.register_attribute(__MODULE__, :factory_man_variant_defs, accumulate: true)
 
+      # One `{{name, arity}, source}` entry per generated function, to name both sources when two
+      # would share a name
+      Module.register_attribute(__MODULE__, :factory_man_generated, accumulate: true)
+
       parent_opts =
         case unquote(opts)[:extends] do
           nil -> []
@@ -786,7 +856,12 @@ defmodule FactoryMan do
 
       # Resolved against an empty parent for a root module too, so every module stores its hooks
       # as lists of functions in run order
-      parent_factory_opts = FactoryMan._merge_opts(parent_opts, unquote(opts))
+      parent_factory_opts =
+        FactoryMan._merge_opts(
+          parent_opts,
+          unquote(opts),
+          "use FactoryMan in #{inspect(__MODULE__)}"
+        )
 
       # Put factory module options into a module attribute that can be read by the child factories
       Module.register_attribute(__MODULE__, :parent_factory_opts, persist: true)
@@ -882,8 +957,11 @@ defmodule FactoryMan do
 
   - `:struct` - The struct or Ecto schema module to build. When provided, generates struct,
     params, and insert functions.
-  - `:insert?` - Set to `false` to skip generating insert functions (default: `true` when
-    repo is configured and struct is insertable)
+  - `:insert` - The default insert target: `:ecto` (default, the repo's `insert!/2`), `false`
+    (no default insert functions), or a remote capture of arity 2 such as
+    `&MyApp.Factory.put!/2`. Overrides the module-level value.
+  - `:insert_via` - Named insert targets, each generating an `insert_*_via_<name>` family:
+    `name: capture` adds or replaces a target, and `name: false` removes an inherited one.
   - `:body` - What the factory body returns: `:params` (default, a params map) or `:struct`
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
@@ -903,17 +981,19 @@ defmodule FactoryMan do
   ## Generated Functions
 
   For a factory named `user` with `struct: User` and a plain params argument that defaults to an
-  empty map, the following functions are generated. Insert functions require a configured repo, a table-backed
-  Ecto schema, and `insert?` not set to `false`.
+  empty map, the following functions are generated. The insert functions shown use the default
+  `:ecto` insert target, which requires a configured repo and a table-backed Ecto schema. Each
+  `insert_via:` target adds `insert_user_via_<target>/0,1,2`,
+  `insert_user_via_<target>_list/1,2,3`, and `insert_user_struct_via_<target>/1,2`.
 
   - `build_user_struct/0,1,2` - Returns an unsaved struct
   - `build_user_params/0,1,2` - Clean params map derived from the built struct
   - `build_user_string_params/0,1,2` - Same, with string keys
-  - `insert_user/0,1,2` - Inserts into the database (when repo is configured)
+  - `insert_user/0,1,2` - Inserts with the default insert target
   - `build_user_struct_list/1,2,3` - Builds multiple structs
   - `build_user_params_list/1,2,3` - Builds multiple params maps
   - `build_user_string_params_list/1,2,3` - Builds multiple string-keyed params maps
-  - `insert_user_list/1,2,3` - Inserts multiple items (when repo is configured)
+  - `insert_user_list/1,2,3` - Inserts multiple items with the default insert target
   - `insert_user_struct/1,2` - Inserts an already-built struct through the insert pipeline
 
   For a factory named `greeting` without `struct:`, simplified names are used:
@@ -976,15 +1056,18 @@ defmodule FactoryMan do
 
       FactoryMan._validate_opts!(
         opts,
-        [:struct, :insert?, :body, :hooks, :strict, :repo, :assocs],
+        [:struct, :insert, :insert_via, :body, :hooks, :strict, :repo, :assocs],
         subject
       )
 
       FactoryMan._validate_hooks!(opts, subject)
+      FactoryMan._validate_insert!(opts, subject)
 
       parent_factory_opts = Module.get_attribute(__MODULE__, :parent_factory_opts)
 
-      merged_opts = FactoryMan._merge_opts(parent_factory_opts, opts)
+      merged_opts = FactoryMan._merge_opts(parent_factory_opts, opts, subject)
+
+      source = {:factory, factory_name}
 
       body = Keyword.get(merged_opts, :body, :params)
 
@@ -1031,7 +1114,11 @@ defmodule FactoryMan do
       # Non-struct factories use `build_*` / `build_*_list` (no suffix) and can return any value.
       # Struct factories get their `build_*_params` functions derived from the built struct below.
       if is_nil(merged_opts[:struct]) do
+        FactoryMan._reject_insert_opts!(opts, subject)
+
         build_fn = :"build_#{factory_name}"
+
+        FactoryMan.Codegen.claim_head!(__MODULE__, build_fn, head_ast, source)
 
         # Head declaration (simple variable with default if present)
         @doc "Builds a value from the `:#{factory_name}` factory."
@@ -1053,21 +1140,23 @@ defmodule FactoryMan do
           end)
         end
 
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.variants_fn(build_fn, factory_name, factory_name, [], build_fn),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
 
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
       end
 
       if merged_opts[:struct] != nil do
         build_struct_fn = :"build_#{factory_name}_struct"
+
+        FactoryMan.Codegen.claim_head!(__MODULE__, build_struct_fn, head_ast, source)
 
         # Head declaration (simple variable with default if present)
         @doc "Builds a `#{inspect(merged_opts[:struct])}` struct from the `:#{factory_name}` factory (in memory, not persisted)."
@@ -1126,7 +1215,7 @@ defmodule FactoryMan do
           end
         end
 
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.variants_fn(
             build_struct_fn,
             factory_name,
@@ -1134,74 +1223,70 @@ defmodule FactoryMan do
             [],
             build_struct_fn
           ),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
 
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.map_list_fns(
             build_struct_fn,
             :"#{build_struct_fn}_list",
             projections
           ),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
 
         struct_module = merged_opts[:struct]
-        repo = merged_opts[:repo]
 
         # Generate build_*_params and build_*_string_params, derived from the built struct
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.params_fns(
             factory_name,
             projections,
             FactoryMan.Codegen.ecto_schema?(struct_module)
           ),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
 
-        if FactoryMan.Codegen.insertable_ecto_schema?(struct_module, repo) and
-             merged_opts[:insert?] != false do
-          insert_fn = :"insert_#{factory_name}"
+        # The default target (`insert:`) generates the `insert_*` family, which runs the insert
+        # hooks. Each named target (`insert_via:`) generates an `insert_*_via_<target>` family,
+        # which calls the target's function without hooks. The insert itself lives in
+        # insert_*_struct; insert_* only adds the build step in front of it.
+        for {target_name, target} <-
+              FactoryMan._insert_targets!(opts, merged_opts, subject) do
+          {insert_fn, insert_struct_fn} =
+            FactoryMan.Codegen.insert_names(factory_name, target_name)
 
-          Code.eval_quoted(
-            FactoryMan.Codegen.insert_convenience_fns(insert_fn, projections),
-            [],
-            __ENV__
-          )
-
-          # Implementation - uses plain_var_ast since pattern match variables
-          # are only needed in the params builder body. The insert pipeline itself lives in
-          # insert_*_struct; this function only adds the build step in front of it.
-          @doc FactoryMan.Codegen.insert_doc()
-          def unquote(insert_fn)(unquote(plain_var_ast), opts) when is_list(opts) do
-            {variants, repo_insert_opts} =
-              FactoryMan._pop_variants!(opts, unquote("#{insert_fn}/2"))
-
-            unquote(user_var)
-            |> unquote(:"build_#{factory_name}_struct")(variants: variants)
-            |> unquote(:"insert_#{factory_name}_struct")(repo_insert_opts)
-          end
-
-          Code.eval_quoted(
-            FactoryMan.Codegen.insert_list_fns(insert_fn, :"#{insert_fn}_list", projections),
-            [],
-            __ENV__
-          )
-
-          # Insert an already-built struct through the factory's insert pipeline
-          Code.eval_quoted(
-            FactoryMan.Codegen.insert_struct_fns(
-              :"insert_#{factory_name}_struct",
-              struct_module,
-              repo,
-              hooks,
-              factory_name
+          FactoryMan.Codegen.define(
+            FactoryMan.Codegen.insert_fns(
+              insert_fn,
+              build_struct_fn,
+              insert_struct_fn,
+              target,
+              projections
             ),
-            [],
-            __ENV__
+            __ENV__,
+            source
+          )
+
+          FactoryMan.Codegen.define(
+            FactoryMan.Codegen.insert_struct_fns(
+              insert_struct_fn,
+              insert_fn,
+              struct_module,
+              target,
+              if(is_nil(target_name), do: hooks, else: []),
+              FactoryMan.Codegen.insert_struct_doc(
+                struct_module,
+                target,
+                factory_name,
+                is_nil(target_name)
+              )
+            ),
+            __ENV__,
+            source
           )
         end
       end
@@ -1327,6 +1412,8 @@ defmodule FactoryMan do
 
       {_base_name, base_opts} = base_entry
 
+      source = {:variant, variant_name, base_factory_name}
+
       # Variant function names combine variant + base: e.g. :admin + :user = :admin_user
       # The :as option overrides this combined name.
       full_name = as_name || :"#{variant_name}_#{base_factory_name}"
@@ -1374,6 +1461,8 @@ defmodule FactoryMan do
       if is_nil(base_opts[:struct]) do
         build_fn = :"build_#{full_name}"
 
+        FactoryMan.Codegen.claim_head!(__MODULE__, build_fn, head_ast, source)
+
         @doc "Builds a value from the `:#{variant_name}` variant of the `:#{base_factory_name}` factory."
         def unquote({build_fn, [], [head_ast]})
 
@@ -1381,7 +1470,7 @@ defmodule FactoryMan do
           unquote(build_fn)(unquote(user_var), [])
         end
 
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.variants_fn(
             build_fn,
             full_name,
@@ -1389,20 +1478,22 @@ defmodule FactoryMan do
             [variant_name],
             :"build_#{base_factory_name}"
           ),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
 
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
       end
 
       # Generate struct builder variant (if base factory has struct)
       if base_opts[:struct] != nil do
         build_struct_fn = :"build_#{full_name}_struct"
+
+        FactoryMan.Codegen.claim_head!(__MODULE__, build_struct_fn, head_ast, source)
 
         @doc "Builds a `#{inspect(base_opts[:struct])}` struct from the `:#{variant_name}` variant of the `:#{base_factory_name}` factory (in memory, not persisted)."
         def unquote({build_struct_fn, [], [head_ast]})
@@ -1411,7 +1502,7 @@ defmodule FactoryMan do
           unquote(build_struct_fn)(unquote(user_var), [])
         end
 
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.variants_fn(
             build_struct_fn,
             full_name,
@@ -1419,74 +1510,69 @@ defmodule FactoryMan do
             [variant_name],
             :"build_#{base_factory_name}_struct"
           ),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
 
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.map_list_fns(
             build_struct_fn,
             :"#{build_struct_fn}_list",
             projections
           ),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
 
         struct_module = base_opts[:struct]
-        repo = base_opts[:repo]
 
         # Generate build_*_params and build_*_string_params, derived from the variant's struct
-        Code.eval_quoted(
+        FactoryMan.Codegen.define(
           FactoryMan.Codegen.params_fns(
             full_name,
             projections,
             FactoryMan.Codegen.ecto_schema?(struct_module)
           ),
-          [],
-          __ENV__
+          __ENV__,
+          source
         )
 
-        # Generate insert variant -- delegates to base factory's insert
-        # (reuses base factory's hooks, repo config, and insert pipeline)
-        if FactoryMan.Codegen.insertable_ecto_schema?(struct_module, repo) and
-             base_opts[:insert?] != false do
-          insert_fn = :"insert_#{full_name}"
+        # The variant's insert families build through the variant, then insert through the base
+        # factory's insert_*_struct functions (its targets, hooks, and repo)
+        for {target_name, target} <- FactoryMan._insert_targets!([], base_opts, nil) do
+          {insert_fn, insert_struct_fn} = FactoryMan.Codegen.insert_names(full_name, target_name)
 
-          Code.eval_quoted(
-            FactoryMan.Codegen.insert_convenience_fns(insert_fn, projections),
-            [],
-            __ENV__
-          )
+          {_base_insert_fn, base_insert_struct_fn} =
+            FactoryMan.Codegen.insert_names(base_factory_name, target_name)
 
-          # Build through the variant, then insert through the base factory's pipeline
-          @doc FactoryMan.Codegen.insert_doc()
-          def unquote(insert_fn)(unquote(plain_var_ast), opts) when is_list(opts) do
-            {variants, repo_insert_opts} =
-              FactoryMan._pop_variants!(opts, unquote("#{insert_fn}/2"))
-
-            unquote(user_var)
-            |> unquote(build_struct_fn)(variants: variants)
-            |> unquote(:"insert_#{base_factory_name}_struct")(repo_insert_opts)
-          end
-
-          Code.eval_quoted(
-            FactoryMan.Codegen.insert_list_fns(insert_fn, :"#{insert_fn}_list", projections),
-            [],
-            __ENV__
-          )
-
-          # Insert an already-built struct, delegating to the base factory's pipeline, since a
-          # variant's preprocessor has no role once the struct is built
-          Code.eval_quoted(
-            FactoryMan.Codegen.insert_struct_delegate_fns(
-              :"insert_#{full_name}_struct",
-              struct_module,
-              :"insert_#{base_factory_name}_struct",
-              base_factory_name
+          FactoryMan.Codegen.define(
+            FactoryMan.Codegen.insert_fns(
+              insert_fn,
+              build_struct_fn,
+              base_insert_struct_fn,
+              target,
+              projections
             ),
-            [],
-            __ENV__
+            __ENV__,
+            source
+          )
+
+          FactoryMan.Codegen.define(
+            FactoryMan.Codegen.insert_struct_delegate_fns(
+              insert_struct_fn,
+              insert_fn,
+              struct_module,
+              target,
+              base_insert_struct_fn,
+              FactoryMan.Codegen.insert_struct_doc(
+                struct_module,
+                target,
+                base_factory_name,
+                is_nil(target_name)
+              )
+            ),
+            __ENV__,
+            source
           )
         end
       end
@@ -1644,25 +1730,119 @@ defmodule FactoryMan do
   end
 
   @doc false
-  def _ensure_insertable!(struct, repo_insert_opts, insert_struct_fn, insert_fn) do
-    if Keyword.has_key?(repo_insert_opts, :variants) do
+  def _reject_struct_variants!(insert_opts, insert_struct_function, insert_function) do
+    if Keyword.has_key?(insert_opts, :variants) do
       raise ArgumentError,
-            "#{insert_struct_fn}/2 inserts a struct that has already been built, so it does not " <>
-              "take variants:. Use #{insert_fn}/2 to build with variants and insert."
+            "#{insert_struct_function} inserts a struct that has already been built, so it does " <>
+              "not take variants:. Use #{insert_function} to build with variants and insert."
     end
+  end
 
+  @doc false
+  def _ensure_not_inserted!(struct, insert_struct_function) do
     case struct.__meta__.state do
       :built ->
         struct
 
       state ->
         raise ArgumentError,
-              "#{insert_struct_fn}/2 expects a struct that has not been inserted, got a " <>
+              "#{insert_struct_function} expects a struct that has not been inserted, got a " <>
                 "%#{inspect(struct.__struct__)}{} whose Ecto metadata state is #{inspect(state)}. " <>
                 "To insert it again on purpose (e.g. into another prefix), mark it as built " <>
                 "first: Ecto.put_meta(struct, state: :built)"
     end
   end
+
+  # The insert targets a struct factory generates functions for, as `{target_name, target}`:
+  # `nil` names the default target (`insert:`), which is `{:ecto, repo}` or a capture, and the
+  # `insert_via:` targets follow. `own_opts` are the options written on the factory itself, since
+  # only an explicit `insert: :ecto` raises when it cannot generate anything.
+  @doc false
+  def _insert_targets!(own_opts, merged_opts, subject) do
+    default_target =
+      case Keyword.fetch!(merged_opts, :insert) do
+        false -> []
+        :ecto -> ecto_target!(own_opts, merged_opts, subject)
+        capture -> [{nil, capture}]
+      end
+
+    default_target ++ merged_opts[:insert_via]
+  end
+
+  defp ecto_target!(own_opts, merged_opts, subject) do
+    struct_module = merged_opts[:struct]
+    repo = merged_opts[:repo]
+
+    reason =
+      cond do
+        not FactoryMan.Codegen.ecto_schema?(struct_module) -> "it is not an Ecto schema"
+        struct_module.__schema__(:source) == nil -> "it is an embedded schema"
+        is_nil(repo) -> "no repo is configured"
+        true -> nil
+      end
+
+    cond do
+      is_nil(reason) ->
+        [{nil, {:ecto, repo}}]
+
+      own_opts[:insert] == :ecto ->
+        raise ArgumentError,
+              "#{subject} sets insert: :ecto, but it cannot be inserted with Ecto (#{reason}). " <>
+                "Set a repo, use insert: false, or pass a capture."
+
+      true ->
+        []
+    end
+  end
+
+  # Only struct factories have insert functions, so insert options written on a non-struct
+  # factory are a mistake. Inherited ones are ignored, like `body:` and `strict:`.
+  @doc false
+  def _reject_insert_opts!(own_opts, subject) do
+    case Enum.find([:insert, :insert_via], &Keyword.has_key?(own_opts, &1)) do
+      nil ->
+        :ok
+
+      option ->
+        raise ArgumentError,
+              "#{subject} sets #{option}:, but only struct factories have insert functions."
+    end
+  end
+
+  # Two generated functions with one name and arity would silently merge into one function, so
+  # every generated function claims its name first. `Module.defines?/2` also catches a
+  # hand-written function defined earlier in the module.
+  @doc false
+  def _claim_names!(module, names, source) do
+    for name_arity <- names, Module.defines?(module, name_arity) do
+      {name, arity} = name_arity
+      generated = Module.get_attribute(module, :factory_man_generated)
+
+      message =
+        case List.keyfind(generated, name_arity, 0) do
+          {_name_arity, other_source} ->
+            "#{describe_source(other_source)} and #{describe_source(source)} in " <>
+              "#{inspect(module)} both generate #{name}/#{arity}. Rename one" <>
+              if(variant_source?(source) or variant_source?(other_source),
+                do: ", or use as: on the variant.",
+                else: "."
+              )
+
+          nil ->
+            "#{describe_source(source)} in #{inspect(module)} generates #{name}/#{arity}, " <>
+              "which is already defined in the module. Rename one."
+        end
+
+      raise ArgumentError, message
+    end
+
+    Enum.each(names, &Module.put_attribute(module, :factory_man_generated, {&1, source}))
+  end
+
+  defp describe_source({:factory, name}), do: "factory :#{name}"
+  defp describe_source({:variant, variant, base}), do: "variant :#{variant} of :#{base}"
+
+  defp variant_source?(source), do: match?({:variant, _variant, _base}, source)
 
   # The step that resolves declared associations into the params variable, or `nil` without
   # `assocs:`. Validation of the declaration itself happens at build time.
@@ -2037,8 +2217,14 @@ defmodule FactoryMan do
 
     subject = "use FactoryMan in #{inspect(module)}"
 
-    _validate_opts!(opts, [:repo, :extends, :hooks, :body, :strict, :insert?, :struct], subject)
+    _validate_opts!(
+      opts,
+      [:repo, :extends, :hooks, :body, :strict, :insert, :insert_via, :struct],
+      subject
+    )
+
     _validate_hooks!(opts, subject)
+    _validate_insert!(opts, subject)
   end
 
   @doc false
@@ -2145,8 +2331,66 @@ defmodule FactoryMan do
   defp split_hook(hook_name, fun),
     do: {[fun], Keyword.fetch!(@hook_default_placements, hook_name)}
 
+  # Insert functions are compiled into the generated functions as remote calls, like hooks, so
+  # only remote captures of arity 2 are accepted
   @doc false
-  def _merge_opts(parent_opts, child_opts) do
+  def _validate_insert!(opts, subject) do
+    case Keyword.fetch(opts, :insert) do
+      {:ok, insert} when insert in [false, :ecto] ->
+        :ok
+
+      {:ok, insert} ->
+        unless insert_capture?(insert) do
+          raise ArgumentError,
+                "invalid :insert option for #{subject}: #{inspect(insert)}. Expected false, " <>
+                  ":ecto, or a remote capture of arity 2 (e.g. &MyApp.Factory.put!/2)."
+        end
+
+      :error ->
+        :ok
+    end
+
+    targets = Keyword.get(opts, :insert_via, [])
+
+    unless is_list(targets) and Keyword.keyword?(targets) do
+      raise ArgumentError,
+            "expected :insert_via for #{subject} to be a keyword list of target names and " <>
+              "remote captures of arity 2, got: #{inspect(targets)}"
+    end
+
+    if Keyword.has_key?(targets, :ecto) do
+      raise ArgumentError,
+            "invalid insert_via: target :ecto for #{subject}. The name :ecto is reserved for the " <>
+              "built-in Ecto insert. Use another name."
+    end
+
+    target_names = Keyword.keys(targets)
+
+    case target_names -- Enum.uniq(target_names) do
+      [] ->
+        :ok
+
+      duplicates ->
+        raise ArgumentError,
+              "duplicate insert_via: targets #{inspect(Enum.uniq(duplicates))} for #{subject}"
+    end
+
+    for {target_name, capture} <- targets, capture != false and not insert_capture?(capture) do
+      raise ArgumentError,
+            "invalid insert_via: target #{inspect(target_name)} for #{subject}: " <>
+              "#{inspect(capture)}. Expected a remote capture of arity 2 (e.g. " <>
+              "&MyApp.Factory.index!/2), or false to remove an inherited target."
+    end
+
+    :ok
+  end
+
+  defp insert_capture?(value) do
+    is_function(value, 2) and Function.info(value, :type) == {:type, :external}
+  end
+
+  @doc false
+  def _merge_opts(parent_opts, child_opts, subject) do
     parent_hooks = Keyword.get(parent_opts, :hooks, [])
     child_hooks = Keyword.get(child_opts, :hooks, [])
 
@@ -2162,7 +2406,35 @@ defmodule FactoryMan do
         end
       end)
 
-    merged_opts = parent_opts |> Keyword.merge(child_opts) |> Keyword.delete(:hooks)
+    # Parent targets have already been resolved into the active targets. A child target adds a
+    # target, replaces the inherited one of the same name, or removes it with `false`.
+    merged_targets =
+      child_opts
+      |> Keyword.get(:insert_via, [])
+      |> Enum.reduce(Keyword.get(parent_opts, :insert_via, []), fn
+        {target_name, false}, targets ->
+          unless Keyword.has_key?(targets, target_name) do
+            raise ArgumentError,
+                  "#{subject} removes insert target #{inspect(target_name)}, which does not " <>
+                    "exist. Inherited targets: #{inspect(Keyword.keys(targets))}."
+          end
+
+          Keyword.delete(targets, target_name)
+
+        {target_name, capture}, targets ->
+          if Keyword.has_key?(targets, target_name) do
+            Keyword.replace!(targets, target_name, capture)
+          else
+            targets ++ [{target_name, capture}]
+          end
+      end)
+
+    merged_opts =
+      parent_opts
+      |> Keyword.merge(child_opts)
+      |> Keyword.delete(:hooks)
+      |> Keyword.put_new(:insert, :ecto)
+      |> Keyword.put(:insert_via, merged_targets)
 
     if merged_hooks == [] do
       merged_opts

@@ -50,6 +50,7 @@ test/
     assoc_test.exs
     extends_test.exs
     hooks_test.exs
+    insert_targets_test.exs
     lazy_evaluation_test.exs
     sequence_test.exs
     strict_params_test.exs

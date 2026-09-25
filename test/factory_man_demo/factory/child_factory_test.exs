@@ -170,7 +170,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
       end
     end
 
-    test "not generated for insert?: false or embedded-schema factories" do
+    test "not generated for insert: false or embedded-schema factories" do
       refute function_exported?(ChildFactory, :insert_non_insertable_struct, 1)
       refute function_exported?(ChildFactory, :insert_embedded_schema_struct, 1)
     end
@@ -473,7 +473,7 @@ defmodule FactoryManDemo.Factory.ChildFactoryTest do
   # ── Factory options ──────────────────────────────────────────────
 
   describe "factory options" do
-    test "insert?: false prevents insert function generation" do
+    test "insert: false prevents insert function generation" do
       assert function_exported?(ChildFactory, :build_non_insertable_params, 0)
       assert function_exported?(ChildFactory, :build_non_insertable_struct, 0)
       refute function_exported?(ChildFactory, :insert_non_insertable, 0)
