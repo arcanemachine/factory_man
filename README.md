@@ -111,48 +111,25 @@ iex> Factory.build_post_struct(%{author: %{username: "alice"}, tags: [%{name: "e
 iex> Factory.build_user_params(%{username: "alice"})
 %{username: "alice", ...}
 
-# String-keyed input for a controller test
-iex> Factory.build_user_string_params(%{username: "alice"})
-%{"username" => "alice", ...}
-
-# Build several structs without saving them
-iex> Factory.build_user_struct_list(3)
-[%User{id: nil, ...}, %User{id: nil, ...}, %User{id: nil, ...}]
-
 # Build and save a struct
 iex> Factory.insert_user(%{username: "alice"})
 %User{id: 1, username: "alice", ...}
 
-# Build and insert multiple structs in a single call
+# Build and insert several, each built independently
 iex> Factory.insert_user_list(3)
 [%User{id: 2, ...}, %User{id: 3, ...}, %User{id: 4, ...}]
-
-# Save an edited struct through the factory's insert hooks
-iex> user = Factory.build_user_struct()
-iex> Factory.insert_user_struct(%{user | username: "edited"})
-%User{id: 5, username: "edited", ...}
 
 # Build a variant struct
 iex> Factory.build_admin_user_struct(%{username: "the_boss"})
 %User{id: nil, role: "admin", username: "the_boss", ...}
 
-# Insert a variant struct
-iex> Factory.insert_admin_user(%{username: "the_boss"})
-%User{id: 6, role: "admin", username: "the_boss", ...}
-
 # Combine variants in one build
 iex> Factory.build_user_struct(%{}, variants: [:admin, :confirmed])
 %User{id: nil, role: "admin", confirmed_at: ~U[2026-09-24 12:00:00.000000Z], ...}
 
-## Struct-less factory functions
-
 # Build a struct-less factory item
 iex> Factory.build_api_payload()
 %{action: "create", resource: "user"}
-
-# Build a list of struct-less factory items
-iex> Factory.build_api_payload_list(2)
-[%{action: "create", resource: "user"}, %{action: "create", resource: "user"}]
 ```
 
 ## How It Works
@@ -175,20 +152,24 @@ Factories without a `struct:` option are simpler: they generate `build_<name>` a
 
 ## Organizing Factories
 
-Keep shared configuration (repo, hooks, `strict:`, helpers) in a base factory, and define
-factories in child modules that inherit it with `extends:`:
+Keep shared configuration in a base factory:
 
 ```elixir
-defmodule MyApp.Factory.Accounts do
-  use FactoryMan, extends: MyApp.Factory
+defmodule MyApp.Factory do
+  use FactoryMan,
+    repo: MyApp.Repo,
+    strict: true,
+    hooks: [after_insert: &__MODULE__.reset_assocs/1]
 
-  deffactory user(params \\ %{}), struct: MyApp.Accounts.User do
-    Map.merge(%{username: FactoryMan.sequence("user")}, params)
+  def reset_assocs(struct) do
+    Ecto.reset_fields(struct, struct.__struct__.__schema__(:associations))
   end
 end
 ```
 
-See "Organize a growing factory suite" in the [Cookbook](COOKBOOK.md) for a recommended layout.
+Child modules inherit its options and helper functions with `use FactoryMan, extends:
+MyApp.Factory`. See "Organize a growing factory suite" in the [Cookbook](COOKBOOK.md) for a
+recommended layout.
 
 ## Going Further
 
@@ -205,6 +186,7 @@ The full reference lives in the
 - **Factory inheritance** (`extends:`) - share repo, hooks, and helper functions
 - **Direct struct factories** (`body: :struct`) - full control over struct construction
 - **Insert targets** (`insert:`, `insert_via:`) - insert into other stores, such as a search index
-- **Embedded schemas** - build-only factories, detected automatically
+- **Embedded schemas** - no Ecto insert functions, detected automatically
 - **[Cookbook](COOKBOOK.md)** - a practical progression from a first factory through realistic
-  defaults, variants, associations, suite organization, hooks, strict params, and advanced presets
+  defaults, variants, associations, suite organization, hooks, strict params, insert targets, and
+  advanced presets

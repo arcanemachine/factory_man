@@ -1,7 +1,7 @@
 defmodule FactoryMan do
   @moduledoc """
   An Elixir library for generating test data. Define factories with `deffactory`, and FactoryMan
-  generates functions for building params and structs, and inserting database records.
+  generates functions for building params and structs, and inserting records.
 
   ## Quick Start
 
@@ -12,7 +12,7 @@ defmodule FactoryMan do
     alias MyApp.Users.User
 
     deffactory user(params \\\\ %{}), struct: User do
-      base_params = %{username: "user-\#{System.os_time()}"}
+      base_params = %{username: FactoryMan.sequence("user")}
 
       Map.merge(base_params, params)
     end
@@ -21,30 +21,30 @@ defmodule FactoryMan do
 
   ## Generated Functions
 
-  For a factory named `:user` with `struct: User` and a plain params argument that defaults to an empty
-  map, the following functions are available. The insert functions shown use the default insert
-  target, the repo's `insert!/2`, which requires a configured repo and a table-backed Ecto schema
-  (see Insert Targets).
+  For a factory named `:user` with `struct: User` and a params argument that defaults to an empty
+  map:
 
   | Function                              | Returns          | Purpose                              |
   | ------------------------------------- | ---------------- | ------------------------------------ |
   | `build_user_struct/0,1,2`             | `%User{}`        | Struct in memory (not persisted)     |
   | `build_user_params/0,1,2`             | `%{}`            | Clean params map derived from struct |
   | `build_user_string_params/0,1,2`      | `%{"" => ...}`   | Same, with string keys               |
-  | `insert_user/0,1,2`                   | `%User{}`        | Inserted into database               |
+  | `insert_user/0,1,2`                   | `%User{}`        | Built and inserted                   |
   | `build_user_struct_list/1,2,3`        | `[%User{}, ...]` | List of structs                      |
   | `build_user_params_list/1,2,3`        | `[%{}, ...]`     | List of params maps                  |
   | `build_user_string_params_list/1,2,3` | `[%{}, ...]`     | List of string-keyed params maps     |
   | `insert_user_list/1,2,3`              | `[%User{}, ...]` | List of inserted records             |
   | `insert_user_struct/1,2`              | `%User{}`        | Inserts an already-built struct      |
 
-  Builders and `insert_user` accept factory params. `insert_user_struct` takes an existing `%User{}`
-  instead. Each list item is built independently.
+  The insert functions use the default insert target, the repo's `insert!/2`, which requires a
+  configured repo and a table-backed Ecto schema (see Insert Targets). Each list item is built
+  independently. `insert_user_struct` has no list counterpart.
 
-  Every builder also takes options after its params (`build_user_struct/2`,
-  `build_user_struct_list/3`, and so on). The only builder option is `variants:` (see Variant
-  Factories). Insert functions take one keyword list: FactoryMan uses `:variants`, and every other
-  option is passed to the insert target (here, the repo's `insert!/2`) unchanged:
+  Every builder takes options after its params (`build_user_struct/2`, `build_user_struct_list/3`,
+  and so on). The only builder option is `variants:` (see Variant Factories). Insert functions take
+  one keyword list: FactoryMan uses `:variants`, and every other option is passed to the insert
+  target unchanged. The `*_struct` insert forms take no `variants:`, since the struct is already
+  built:
 
   ```elixir
   insert_user(%{username: "alice"}, variants: [:admin], returning: true, prefix: "tenant_a")
@@ -64,95 +64,31 @@ defmodule FactoryMan do
   | Table-backed Ecto schema | No             | Yes             | Yes             | Yes, unless `insert: false`   |
   | Embedded schema          | No             | Yes             | Yes             | With an `insert:` capture     |
 
-  Value builders use `build_<name>` and `build_<name>_list`. Params builders include atom-keyed and
-  string-keyed functions. Any struct factory also gets an `insert_<name>_via_<target>` family for
-  each `insert_via:` target (see Insert Targets). Setting `body: :struct` changes how the struct is
-  built, not which function families are generated.
-
-  The diagram shows the build pipeline with `body: :params`. Declared `assocs:` are resolved
-  after `before_build_params` and before the factory body. Each function shown has a
-  list counterpart that builds every item independently. `insert_user_struct`, not shown, starts at the
-  insert pipeline and has no list counterpart:
-
-  ```mermaid
-  flowchart TD
-      body["factory body<br/>(returns params map)"]
-      struct_fn["build_user_struct/0,1<br/>params hooks → lazy eval → struct!/2 → struct hooks"]
-      params_fn["build_user_params/0,1<br/>struct stripped to a clean map"]
-      string_params_fn["build_user_string_params/0,1<br/>keys converted to strings"]
-      insert_fn["insert_user/0,1,2<br/>insert hooks → Repo.insert!/2"]
-
-      body --> struct_fn
-      struct_fn --> params_fn
-      params_fn --> string_params_fn
-      struct_fn --> insert_fn
-  ```
+  Value builders are `build_<name>` and `build_<name>_list`. Any struct factory also gets an
+  `insert_<name>_via_<target>` family for each `insert_via:` target. `body: :struct` changes how
+  the struct is built, not which functions are generated.
 
   ## Defining Factories
 
-  The `deffactory` macro defines a named factory with one argument and a body. With `struct:` and
-  the default `body: :params`, return a plain map containing only fields of that struct. With
-  `body: :struct`, return the struct directly. Without `struct:`, the body can return any value.
+  `deffactory` defines a named factory with one argument and a body. With `struct:` and the default
+  `body: :params`, the body returns a map of that struct's fields. With `body: :struct`, it returns
+  the struct itself. Without `struct:`, the body can return any value, and the factory generates
+  only `build_<name>` and `build_<name>_list`:
 
   ```elixir
-  deffactory user(params \\\\ %{}), struct: User do
-    base_params = %{username: "user-\#{System.os_time()}"}
-
-    Map.merge(base_params, params)
-  end
-  ```
-
-  You can name the parameter anything, and use pattern matching:
-
-  ```elixir
-  deffactory user_from_config(%{username: username} = params), struct: User do
-    base_params = %{username: username}
-
-    Map.merge(base_params, params)
-  end
-  ```
-
-  ### Struct vs. Non-Struct Factories
-
-  The `struct:` option controls both what functions are generated and how they're named:
-
-  ```elixir
-  # Struct factory: generates build_user_params, build_user_struct, insert_user, etc.
-  deffactory user(params \\\\ %{}), struct: User do
-    base_params = %{username: "user-\#{System.os_time()}"}
-    Map.merge(base_params, params)
-  end
-
-  # Non-struct factory: generates build_api_payload and build_api_payload_list only
-  deffactory api_payload(params \\\\ %{}) do
-    %{action: "create", data: params}
-  end
-  ```
-
-  | Factory type                  | Generated functions                                           |
-  | ----------------------------- | ------------------------------------------------------------- |
-  | `struct: User` (`:user`)      | `build_user_params`, `build_user_struct`, `insert_user`, etc. |
-  | No `struct:` (`:api_payload`) | `build_api_payload`, `build_api_payload_list`                 |
-
-  Non-struct factories use simplified names (`build_*` instead of `build_*_params`) because
-  they can return any value: maps, strings, keyword lists, tuples, nil, etc.:
-
-  ```elixir
-  deffactory greeting(name \\\\ "world") do
-    "Hello, \#{name}!"
-  end
-
   deffactory search_opts(overrides \\\\ []) do
     Keyword.merge([page: 1, per_page: 20], overrides)
   end
   ```
 
-  Lazy evaluation works in keyword lists the same way it does in maps. 0-arity and 1-arity
-  functions are resolved at build time. Non-map, non-keyword-list values are passed through
-  unchanged.
+  The argument can have any name, and can pattern-match (`%{username: _} = params`). Merge the
+  params yourself, last, so the caller's values win: FactoryMan does not merge them for you.
 
-  **Associations**: declare association builders with the `assocs:` option (see the
-  [Cookbook](cookbook.html)):
+  ## Associations
+
+  Declare association builders with `assocs:` (Ecto schema `struct:` only). Each declared key is
+  resolved before the body, so the body always receives it resolved, and the final
+  `Map.merge(base_params, params)` stays correct:
 
   ```elixir
   deffactory author(params \\\\ %{}), struct: Author, assocs: [user: &build_user_struct/1] do
@@ -162,111 +98,81 @@ defmodule FactoryMan do
   end
   ```
 
-  Each declared key is resolved before the body, so the body always receives it resolved, and
-  the canonical `Map.merge(base_params, params)` ending is always correct. The builder is the
-  default: an absent key is built with `%{}`, so a `base_params` default for a declared key is
-  never used.
+  A builder is a 1-arity function (a local or remote capture, or an anonymous function), a
+  2-arity function `(params, factory_params)`, or `{builder, options}`. The builder is the
+  default: an absent key is built with `%{}` (a list key with `[]`), so a `base_params` default for
+  a declared key is never used.
 
-  A builder is any 1-arity function (captures, local or remote, and anonymous functions),
-  a 2-arity function that also receives the factory params (see Chaining below), or
-  `{builder, options}` with either or both of:
+  | Caller supplies      | Singular association                        | Plural association                      |
+  | -------------------- | ------------------------------------------- | --------------------------------------- |
+  | Key absent           | Treated as `default:` (`%{}` unless set)    | Treated as `default:` (`[]` unless set) |
+  | `nil`                | `nil`                                       | Raise; use `[]`                         |
+  | Params map           | Built by the builder                        | Raise                                   |
+  | Struct               | Reused unchanged; the builder is not called | Raise                                   |
+  | List of maps/structs | Raise                                       | Each item resolved in order             |
 
-  - `default: value` - what an absent key is treated as.
-  - `required: true` - the key must resolve to a non-nil value: a caller's `nil`, or a builder
-    that returns `nil`, raises. An absent key still builds. Singular associations only, and not
-    together with `default: nil`.
-
-  | Caller supplies | Singular association | Plural association |
-  | --- | --- | --- |
-  | Key absent | Treated as `default:` (`%{}` unless set) | Treated as `default:` (`[]` unless set) |
-  | `nil` | `nil` | Raise; use `[]` |
-  | Params map | Built by the builder | Raise |
-  | Struct | Reused unchanged; the builder is not called | Raise |
-  | List of maps/structs | Raise | Each item resolved in order |
-
-  Supplied structs and builder results must be the related schema, which Ecto provides (a builder
-  for a singular association may return `nil`, unless the key is `required: true`). Keys must be direct associations of an Ecto
-  schema `struct:`; embeds and `:through` associations are not supported. `default:` is `nil` or a
-  params map for a singular association, and a list of params maps for a plural one.
-
-  `assocs:` is evaluated at build time, on every build, like the factory body, so it can hold
-  local captures and anonymous functions. The factory's `params` variable is not in scope there.
-  Any side effect in a `default:` value (an insert, a query, a sequence) therefore happens even
-  when the caller supplies the key; keep defaults to literals. A record at an association position
-  inside `default:` is rejected. The declaration is validated when the factory first builds.
-
-  **Chaining**: keys resolve top to bottom. A 2-arity builder receives `(params, factory_params)`,
-  where `factory_params` holds the caller's params with every key declared above resolved. The
-  current key and the keys declared below it are hidden; undeclared keys are visible as given.
-
-  **Recursion**: a self-referential or mutually recursive default build (e.g. a user whose
-  `mentor` builder builds a user) raises instead of recursing forever. Declare such a key with
-  `default: nil` (`default: []` for a list), or pass a value (a required key can only be passed a
-  value). The guard also rejects recursion that would stop on its own while the key stays absent;
-  supply the key at each level instead.
-
-  **`required: true`** is checked when the key resolves, which includes a `nil` set by a
-  `before_build_params` hook. It does not check the finished struct: a body that puts `nil` back
-  afterwards is not caught.
-
-  **Imperative resolution**: `assoc/3,4` and `assoc_list/3,4` apply the same rules to one key of a
-  params map (without `required:` or the schema check), for plain helper functions, values
-  computed in the body, and builders. They return
-  the resolved value and do not modify the params map, so put it back (or drop the key) before a
-  final `Map.merge(base_params, params)`.
+  - Keys must be direct associations; embeds and `:through` associations are not supported.
+    Supplied structs and builder results must be the related schema (a singular builder may
+    return `nil`, unless the key is `required: true`).
+  - `default: value` is what an absent key is treated as: `nil` or a params map for a singular
+    association, a list of params maps for a plural one. It is evaluated on every build, even when
+    the caller supplies the key, so keep it a literal. A record at an association position inside
+    `default:` raises.
+  - `required: true` (singular keys only, not with `default: nil`) raises when the key resolves to
+    `nil`, from the caller, a `before_build_params` hook, or the builder. It does not check the
+    finished struct.
+  - Keys resolve top to bottom. A 2-arity builder's `factory_params` holds the caller's params with
+    the keys declared above it resolved; the current key and the keys below it are hidden, and
+    undeclared keys are visible as given. See
+    [Chain associations](cookbook.html#chain-associations).
+  - A self-referential or mutually recursive default build raises instead of recursing forever.
+    This includes recursion that would stop on its own while the key stays absent. Declare such a
+    key with `default: nil` (or `default: []`), or pass a value at each level. See
+    [Avoid recursive defaults](cookbook.html#avoid-recursive-defaults).
+  - `assocs:` is evaluated at build time, like the body, and the factory's `params` variable is not
+    in scope there. The declaration is validated when the factory first builds.
+  - `assoc/3,4` and `assoc_list/3,4` apply the same rules to one key, for helper functions and
+    values computed in the body (without `required:` or the schema check). They return the
+    resolved value without changing the params, so put it back (or drop the key) before the final
+    merge.
 
   ## Params Functions
 
-  For struct factories, `build_*_params` and `build_*_string_params` build the struct and
-  convert it to a clean map suitable for changesets or controller tests. For Ecto schemas, all
-  Ecto metadata is stripped; for plain structs, the struct is converted with `Map.from_struct/1`:
+  For struct factories, `build_*_params` and `build_*_string_params` build the struct and convert
+  it to a clean map for changesets or controller tests. For Ecto schemas, Ecto metadata,
+  autogenerated IDs, and unloaded associations are removed; plain structs are converted with
+  `Map.from_struct/1`:
 
   ```elixir
-  # Returns %{username: "alice", first_name: nil, ...}
-  # (no __struct__, __meta__, autogenerated :id, or NotLoaded associations)
-  build_user_params(%{username: "alice"})
-
-  # Same but with string keys: %{"username" => "alice", ...}
-  build_user_string_params(%{username: "alice"})
+  build_user_params(%{username: "alice"})         # %{username: "alice", first_name: nil, ...}
+  build_user_string_params(%{username: "alice"})  # %{"username" => "alice", ...}
   ```
 
-  `belongs_to` associations are removed from the output. If the association is persisted, its
-  foreign key is set instead. Ordinary fields retain nil values, but nil embeds are omitted. Struct
-  values such as `DateTime` are left untouched.
+  Fields whose value is `nil` are kept, so a changeset test sees a `nil` field as given, not as
+  absent; `nil` embeds are omitted. `belongs_to` associations are removed, and their foreign key is
+  set when the associated record is persisted. Struct values such as `DateTime` are left untouched.
 
   ## Factory Options
 
   Options cascade: parent module -> child module -> individual factory.
 
-  **Module-level** (set with `use FactoryMan`):
-
-  - `:repo` - Ecto repo for database operations
-  - `:extends` - Parent factory module to inherit configuration from
-  - `:hooks` - Hooks applied to all factories in the module, chained with inherited hooks
-  - `:insert` and `:insert_via` - The default and named insert targets (see Insert Targets)
+  **Module-level** (set with `use FactoryMan`): `:repo`, `:extends` (the parent factory module),
+  `:hooks`, `:insert`, `:insert_via`, `:body`, `:strict`, and `:struct`.
 
   **Factory-level** (set with `deffactory`):
 
-  - `:struct` - Ecto schema module (enables struct, params, and insert functions)
-  - `:insert` - The default insert target: `:ecto` (default), `false`, or a remote capture of
-    arity 2 (see Insert Targets)
-  - `:insert_via` - Named insert targets, as `name: capture` or `name: false` (see Insert Targets)
-  - `:body` - What the factory body returns: `:params` (default, a params map) or `:struct`
-    (a struct built directly by the body). Params functions are generated either way (derived
-    from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
-  - `:hooks` - Chained with the module-level hooks (see Hook Order below)
-  - `:repo` - Overrides the module-level repo for this factory
-  - `:assocs` - Keyword list mapping Ecto association keys to builders (see Associations above).
-    Factory-level only.
-  - `:strict` - Check the params at the factory boundary: reject unknown keys, and raise when the
-    body ignores or changes a param it was given (see Strict Params below)
+  - `:struct` - The struct or Ecto schema to build (enables struct, params, and insert functions)
+  - `:body` - What the body returns: `:params` (default) or `:struct`. Ignored for non-struct
+    factories.
+  - `:assocs` - Association builders (see Associations). Factory-level only.
+  - `:strict` - `true`, `false`, or `[allow: [...]]` (see Strict Params). Ignored for non-struct
+    factories.
+  - `:hooks` - Chained with the module's hooks (see Hooks)
+  - `:repo` - Overrides the module's repo
+  - `:insert` and `:insert_via` - The default and named insert targets (see Insert Targets)
 
   **Variant-level** (set with `defvariant`): `:for`, `:as`, `:extends`, and `:assocs` (see Variant
-  Factories below).
-
-  `:body` and `:strict` cascade from the module level and are ignored by non-struct factories.
-  `:assocs` is factory-level only, because association keys belong to a single schema, and it
-  requires an Ecto schema `struct:`. Unknown options raise.
+  Factories). Unknown options raise at every level.
 
   ## Insert Targets
 
@@ -298,14 +204,7 @@ defmodule FactoryMan do
 
   An insert function receives the built struct and the caller's options (without `:variants`),
   and returns the inserted struct. A store that takes no options ignores them:
-
-  ```elixir
-  def index!(struct, _opts) do
-    :ok = MyApp.Search.index(struct)
-
-    struct
-  end
-  ```
+  `def index!(struct, _opts)`.
 
   - `insert:` and `insert_via:` cascade like other options. `insert_via:` merges by name: a lower
     level adds a target, replaces the inherited target of the same name, or removes it with
@@ -313,47 +212,30 @@ defmodule FactoryMan do
   - `insert: false` removes the default family only; `insert_via:` targets remain.
   - The insert hooks (`before_insert`, `after_insert`) run for the default target, not for
     `insert_via:` targets. A target that needs more steps does them in its own function.
-  - The `:ecto` insert raises on a struct that has already been inserted. Captures and targets
-    do not check.
+  - Captures and targets do not run the `:ecto` insert's already-inserted check (see Hook
+    Pipeline).
   - A target receives the struct with any built associations still in place. The `:ecto` insert
     cascades them; a capture or target stores them only if its function does. An
     `after_build_struct` hook applies to every family.
   - Variants get their base factory's targets, building through the variant.
   - Both options apply to struct factories only: written on a non-struct factory they raise, and
     inherited ones are ignored.
-  - `__factory_man__(:opts, name)` shows the resolved `insert:` and `insert_via:`.
 
-  The [Cookbook](cookbook.html) has recipes for inserting into other stores.
+  The [Cookbook](cookbook.html#insert-into-other-stores) has recipes for inserting into other
+  stores.
 
   ## Strict Params
 
-  A factory can silently ignore params in two ways: the caller misspells a key, or the factory
-  body drops a key it was given (a forgotten `Map.merge(base_params, params)`, or a `body: :struct`
-  body that never reads the key). Either way, the test builds something other than what it asked
-  for, with no error. Opt in to `strict: true` to catch both:
-
-  ```elixir
-  deffactory user(params \\\\ %{}), struct: User, strict: true do
-    base_params = %{username: FactoryMan.sequence("user")}
-
-    Map.merge(base_params, params)
-  end
-
-  build_user_struct(%{usernme: "typo"})
-  # ** (ArgumentError) unknown params [:usernme] for strict factory :user ...
-  ```
-
-  `strict: true` runs two checks:
+  `strict: true` catches params that a factory silently ignores. It runs two checks:
 
   1. **Unknown keys**, when building starts (before hooks and the body): every key must be a key
      of the `:struct` option's struct, which includes virtual fields and association keys.
   2. **Ignored or changed params**, after the body and its lazy values (before
      `after_build_params`): every field in the params that entered the body (after
      `before_build_params` and `assocs:`) must come out of the body with the same value, compared
-     with `==`. A plain map has been kept when each of its keys has been kept, so a body may add
-     defaults to a map field, or build a struct (e.g. an embed) from it; a caller's `%{}` is always
-     kept. Function values (replaced by lazy evaluation) and association keys (which a body may
-     resolve imperatively) are not checked.
+     with `==`. A plain map has been kept when each of its keys has been kept, including when the
+     body builds a struct such as an embed from it. Function values and association keys are not
+     checked.
 
   ```elixir
   deffactory user(params \\\\ %{}), struct: User, strict: true do
@@ -367,34 +249,28 @@ defmodule FactoryMan do
   #    ...
   ```
 
-  Both checks cover every derived function: params builders, inserts, lists, and variants of the
-  factory. The second check runs in the base factory's body, so it sees what the variants pass on;
-  a variant body that drops a caller's key is not checked.
+  Both checks cover every derived function. The second check runs in the base factory's body, so
+  it sees what the variants pass on; a variant body that drops a caller's key is not checked.
 
-  List keys in `strict: [allow: [...]]` to exempt them from both checks. A key that is not a field
-  may then be passed (e.g. an input used only to derive other fields), and a key that is a field
-  may be changed by the body (e.g. a value it normalizes):
+  `strict: [allow: [...]]` exempts keys from both checks: a key that is not a field may be passed
+  (e.g. an input used only to derive other fields), and a field may be changed by the body:
 
   ```elixir
-  deffactory invoice(params \\\\ %{}), struct: Invoice, body: :struct,
-    strict: [allow: [:line_item_count, :email]] do
+  deffactory invoice(params \\\\ %{}), struct: Invoice, strict: [allow: [:line_item_count]] do
     {count, params} = Map.pop(params, :line_item_count, 1)
 
-    %Invoice{total: count * 100, email: String.downcase(Map.get(params, :email, "a@b.c"))}
+    Map.merge(%{total: count * 100}, params)
   end
   ```
 
-  `:strict` cascades like other options, so `use FactoryMan, strict: true` in a base factory turns
-  it on for every factory that extends it; a factory can override it (e.g. `strict: false`).
-  Non-struct factories have no reference field set, so the option is ignored for them.
+  Set it once in a base factory (`use FactoryMan, strict: true`); a factory can override it. It is
+  ignored for non-struct factories.
 
   ## Hooks
 
-  Transform data at specific stages. Every factory action has both a `before` and `after` hook.
+  Hooks transform data at specific stages. Every stage has a `before` and an `after` hook.
 
   ### Hook Pipeline
-
-  Each generated function uses a subset of the pipeline. The full flow for `insert_user` is:
 
   ```text
   build_user_struct:
@@ -409,24 +285,18 @@ defmodule FactoryMan do
     → before_insert → Repo.insert!() → after_insert
   ```
 
-  The insert hooks belong to the default insert target's functions (`insert_*`, `insert_*_list`,
-  and `insert_*_struct`). `insert_via:` targets run no hooks (see Insert Targets).
-
-  With `body: :struct`, `assocs:` are resolved after params validation and before the body, and
-  the struct the body returns is lazily evaluated. Params-stage hooks remain skipped. A variant
-  resolves its own `assocs:` before its body, then delegates to the base builder, which reuses the
-  resolved structs. `insert_*_struct` receives an already-built struct and does not resolve
-  associations.
-
-  For non-struct factories, `build_*` runs `before_build_params`, the factory body with lazy
-  evaluation, then `after_build_params`.
-
-  `insert_user_struct/1,2` runs the same `before_insert` → insert → `after_insert` pipeline on
-  an already-built struct. Use it after modifying a built struct, so records are shaped
-  consistently no matter how they were constructed. A raw `Repo.insert!/2` would skip the
-  insert hooks. With the `:ecto` insert, it raises on a struct that has already been inserted (or
-  has been deleted); to insert a copy on purpose (e.g. into another prefix), mark it as built first with
-  `Ecto.put_meta(struct, state: :built)`.
+  - The insert hooks belong to the default insert target's functions (`insert_*`,
+    `insert_*_list`, and `insert_*_struct`). `insert_via:` targets run no hooks.
+  - With `body: :struct`, the params-stage hooks (`before_build_params`, `after_build_params`, and
+    `before_build_struct`) are skipped; `assocs:` are resolved after params validation, and the
+    returned struct is lazily evaluated.
+  - For non-struct factories, `build_*` runs `before_build_params`, the body with lazy evaluation,
+    then `after_build_params`.
+  - `insert_user_struct/1,2` runs the insert pipeline on an already-built struct (it does not
+    resolve associations). Use it after modifying a built struct, so records are shaped the same
+    way however they were built; a raw `Repo.insert!/2` skips the insert hooks. With the `:ecto`
+    insert, it raises on a struct that has already been inserted (or deleted). To insert a copy on
+    purpose, mark it as built first: `Ecto.put_meta(struct, state: :built)`.
 
   ### Hook Reference
 
@@ -436,13 +306,13 @@ defmodule FactoryMan do
   | `:after_build_params`  | params (map) | params (map) | Modify params after the factory body (e.g. add computed fields) |
   | `:before_build_struct` | params (map) | params (map) | Last chance to modify params before `struct!()` is called       |
   | `:after_build_struct`  | struct       | struct       | Transform the struct after creation (e.g. set virtual fields)   |
-  | `:before_insert`       | struct       | struct       | Modify struct just before database insertion                    |
+  | `:before_insert`       | struct       | struct       | Modify the struct just before it is inserted                    |
   | `:after_insert`        | struct       | struct       | Post-process after insertion (e.g. reset associations)          |
 
-  A hook is a 1-arity remote capture such as `&__MODULE__.my_hook/1` or `&MyApp.Hooks.my_hook/1`,
-  or a list of them, run in order (`after_insert: [&M.reset/1, &M.log/1]`). Hooks are compiled
-  into the generated functions, so anything that is not a remote capture, such as an anonymous
-  function (`fn ... end`), raises at compile time.
+  A hook is a 1-arity remote capture such as `&__MODULE__.my_hook/1`, or a list of them, run in
+  order (`after_insert: [&M.reset/1, &M.log/1]`). Hooks are compiled into the generated functions,
+  so anything else, such as an anonymous function, raises at compile time. See the
+  [Cookbook](cookbook.html#use-hooks-for-cross-cutting-behavior) for recipes.
 
   ### Hook Order
 
@@ -454,9 +324,7 @@ defmodule FactoryMan do
   3. **Individual factory** - `deffactory name(params), hooks: [...]`
 
   The order is onion-style, like middleware: the parent wraps the child. For a `before_*` hook
-  the parent's runs first, and for an `after_*` hook the parent's runs last. A parent's
-  `after_insert` that resets associations therefore sees the final struct, after any factory
-  `after_insert`.
+  the parent's runs first, and for an `after_*` hook the parent's runs last.
 
   To place a hook (or a list of hooks) explicitly, pass `{hook, placement}`:
 
@@ -466,9 +334,8 @@ defmodule FactoryMan do
   | `:before_parent`  | Before the inherited hooks            | `after_*` hooks   |
   | `:replace_parent` | Instead of all of the inherited hooks | -                 |
 
-  A plain hook uses the default placement for its hook name. "Parent" means everything inherited
-  for that hook name, from every level above. Each level is resolved against the list built so
-  far. For example, with `after_insert`:
+  "Parent" means everything inherited for that hook name, from every level above. Each level is
+  resolved against the list built so far. For example, with `after_insert`:
 
   ```elixir
   # Parent module:       after_insert: &P.hook/1                      -> [P]
@@ -476,146 +343,49 @@ defmodule FactoryMan do
   # Factory:             after_insert: &F.hook/1                      -> [F, P, C]
   ```
 
-  Each hook receives the previous hook's result. The same hook set at two levels runs twice. On
-  a module with no parent, a placement behaves like a plain hook. To switch off the inherited hooks
-  for one factory, replace them with an empty list: `hooks: [after_insert: {[], :replace_parent}]`.
-  An empty list with any other placement has no effect, so it raises.
-
-  `__factory_man__(:opts)` and `__factory_man__(:opts, name)` show each hook name's resolved list,
-  in run order. Unknown hook names, a hook name set twice at one level, and invalid hook values
-  raise.
-
-  ### Examples
-
-  **Reset associations after insert:**
-
-  ```elixir
-  defmodule MyApp.Factory do
-    use FactoryMan,
-      repo: MyApp.Repo,
-      hooks: [after_insert: &__MODULE__.reset_assocs/1]
-
-    def reset_assocs(struct) do
-      Ecto.reset_fields(struct, struct.__struct__.__schema__(:associations))
-    end
-  end
-  ```
-
-  **Log factory usage for debugging:**
-
-  ```elixir
-  deffactory user(params \\\\ %{}), struct: User,
-    hooks: [after_build_params: &__MODULE__.log_params/1] do
-    base_params = %{username: "user-\#{System.os_time()}"}
-
-    Map.merge(base_params, params)
-  end
-
-  def log_params(params) do
-    IO.inspect(params, label: "factory params")
-    params
-  end
-  ```
+  Each hook receives the previous hook's result. The same hook set at two levels runs twice. On a
+  module with no parent, a placement behaves like a plain hook. To switch off the inherited hooks
+  for one factory, use `hooks: [after_insert: {[], :replace_parent}]`; an empty list with any
+  other placement raises. Unknown hook names and a hook name set twice at one level raise.
 
   ## Factory Inheritance
 
-  Child factories inherit the parent's repo, hooks, and helper functions via `:extends`:
+  A child module inherits its parent's options (repo, hooks, insert targets, `strict:`, ...) and
+  can call the parent's helper functions unqualified (here, a `generate_username/0` defined in
+  `MyApp.Factory`). Chains can be any length:
 
   ```elixir
-  defmodule MyApp.Factory do
-    use FactoryMan, repo: MyApp.Repo
-    def generate_username, do: "user-\#{System.os_time()}"
-  end
-
   defmodule MyApp.Factory.Accounts do
     use FactoryMan, extends: MyApp.Factory
 
     deffactory user(params \\\\ %{}), struct: User do
-      base_params = %{username: generate_username()}
-
-      Map.merge(base_params, params)
+      Map.merge(%{username: generate_username()}, params)
     end
   end
   ```
 
-  Inheritance chains are unlimited; a child factory can itself be extended.
-
   ## Variant Factories (`defvariant`)
 
-  A variant wraps an existing base factory. It transforms the caller's params **before** passing
-  them to the base factory. Think of it as a preprocessor: the variant runs first, then the
-  base factory runs with the transformed params.
-
-  This ordering can be counterintuitive because the variant is defined **after** the base
-  factory in your code, but its logic executes **before** the base factory at runtime:
-
-  ```text
-  Code order:     deffactory user(...)   ->  defvariant admin(...), for: :user
-  Execution order:  admin (preprocessor)  ->  user (base factory)
-  ```
-
-  ### Example
+  A variant is a preprocessor for a base factory: its body runs first, on the caller's params,
+  and passes the result to the base factory:
 
   ```elixir
-  deffactory user(params \\\\ %{}), struct: User do
-    base_params = %{username: FactoryMan.sequence("user"), role: "member"}
-
-    Map.merge(base_params, params)
-  end
-
-  defvariant admin(params \\\\ %{}), for: :user do
-    base_params = %{role: "admin"}
-
-    Map.merge(base_params, params)
-  end
-  ```
-
-  Calling `build_admin_user_struct()` is equivalent to `build_user_struct(%{role: "admin"})`.
-  Calling `build_admin_user_struct(%{role: "superadmin"})` passes `%{role: "superadmin"}` to
-  the base factory because the caller's params override the variant defaults.
-
-  Generated functions follow the pattern `{variant}_{base}`:
-  `build_admin_user_params/0,1,2`, `build_admin_user_struct/0,1,2`, `insert_admin_user/0,1,2`,
-  plus list variants.
-
-  ### Custom naming with `:as`
-
-  The `:as` option overrides the combined `{variant}_{base}` name:
-
-  ```elixir
-  defvariant moderator(params \\\\ %{}), for: :user, as: :mod do
-    base_params = %{role: "moderator"}
-
-    Map.merge(base_params, params)
-  end
-  ```
-
-  This generates `build_mod_struct/0,1`, `insert_mod/0,1,2`, etc.
-  instead of the default `build_moderator_user_struct`.
-
-  `:as` only renames the generated functions. The variant is still named `:moderator` wherever
-  variants are listed (`variants:`, `extends:`).
-
-  ### Two ways to write a variant
-
-  Which side of `Map.merge/2` a variant puts `params` on decides who wins when the caller passes
-  the same key. Both are useful:
-
-  ```elixir
-  # Defaults (the usual form): params last, so the caller can override the variant's values
   defvariant admin(params \\\\ %{}), for: :user do
     Map.merge(%{role: "admin"}, params)
   end
 
-  # Forced values: params first, so the variant's values win, even over the caller. For a preset
-  # that guarantees something (e.g. an unindexable property is always unindexable).
-  defvariant unindexable(params \\\\ %{}), for: :property do
-    Map.merge(params, %{is_indexable: false})
-  end
+  build_admin_user_struct()   # same as build_user_struct(%{role: "admin"})
   ```
 
-  A variant can also check the caller's values and raise when they would break its guarantee (see
-  "Validated presets" in the [Cookbook](cookbook.html)).
+  - Its functions are named `{variant}_{base}` (`build_admin_user_struct`, `insert_admin_user`,
+    ...), with the base factory's full family. `as: :mod` renames them (`build_mod_struct`); the
+    variant is still listed as `:admin` in `variants:` and `extends:`.
+  - `for:` must name a factory. A variant is defined after its base factory, in the same module,
+    and variant names are unique per factory.
+  - Params last (`Map.merge(%{role: "admin"}, params)`) makes the variant's values defaults, which
+    the caller can override. Params first (`Map.merge(params, %{banned: true})`) forces them: they
+    win over the caller and over later variants. See
+    [Choose defaults or forced values](cookbook.html#choose-defaults-or-forced-values).
 
   ### Combining variants with `variants:`
 
@@ -623,63 +393,34 @@ defmodule FactoryMan do
   variants in one build:
 
   ```elixir
-  build_user_struct(%{username: "alice"}, variants: [:admin, :confirmed])
-  build_user_params(%{}, variants: [:admin])
-  build_user_struct_list(3, %{}, variants: [:confirmed])
-  insert_user(%{}, variants: [:admin, :confirmed], returning: true)
+  build_user_struct(%{}, variants: [:admin, :confirmed])
+  insert_user(%{}, variants: [:admin], returning: true)
   ```
 
-  Variants are listed by the name in their `defvariant` (`:admin`, not `:admin_user`). For
-  variants written in the defaults form, the caller's params win, then a later variant wins over
-  an earlier one:
-
-  ```elixir
-  build_user_struct(%{}, variants: [:admin, :moderator])     # role "moderator"
-  build_user_struct(%{role: "owner"}, variants: [:admin])    # role "owner"
-  ```
-
-  A variant that forces a value wins over the caller and over every variant after it in the list.
-  The chain runs from the last variant to the base factory: each variant's body receives the
-  output of the variant after it, so a later variant's values reach an earlier one as params.
-
-  A variant's own functions take `variants:` too, with the variant itself counted as the first in
-  the list: `build_admin_user_struct(params, variants: [:confirmed])` is the same as
-  `build_user_struct(params, variants: [:admin, :confirmed])`.
-
-  An unknown variant name, or a variant of another factory, raises and lists the known variants.
+  List variants by their `defvariant` name (`:admin`, not `:admin_user`). For variants that merge
+  params last, the caller's params win, then a later variant wins over an earlier one. The chain
+  runs from the last variant to the base factory, so a later variant's values reach an earlier one
+  as params. A variant's own functions count the variant as the first in the list:
+  `build_admin_user_struct(params, variants: [:confirmed])` is
+  `build_user_struct(params, variants: [:admin, :confirmed])`. An unknown variant name raises and
+  lists the known variants.
 
   ### Building on other variants with `extends:`
 
-  `for:` always names the base factory. A variant builds on other variants of that factory with
-  `extends:`, and wins over the variants it extends:
+  A variant builds on other variants of the same factory with `extends:`, and wins over them:
 
   ```elixir
   defvariant senior(params \\\\ %{}), for: :user, extends: [:admin] do
     Map.merge(%{title: "Senior admin"}, params)
   end
-
-  build_senior_user_struct()   # role "admin", title "Senior admin"
-  ```
-
-  A variant that only extends others gives a recurring combination a name, with the full function
-  family:
-
-  ```elixir
-  defvariant confirmed_admin(params \\\\ %{}), for: :user, extends: [:admin, :confirmed] do
-    params
-  end
   ```
 
   A listed variant brings the variants it extends, and each variant is applied once, at its first
-  position in the list. A variant therefore always comes after the variants it extends, so it wins
-  over them whatever the list order: with `variants: [:senior, :admin]`, `senior`'s title wins.
-
-  A variant must be defined after the variants it extends, in the same module as its base factory.
-  Variant names are unique per factory.
+  position in the list, so a variant wins over the variants it extends whatever the list order. A
+  variant is defined after the variants it extends. A variant whose body is just `params` gives a
+  recurring combination a name.
 
   ## Sequences
-
-  Generate sequential values or cycle through a list:
 
   ```elixir
   FactoryMan.sequence("user")                                          # "user0", "user1", ...
@@ -694,21 +435,14 @@ defmodule FactoryMan do
 
   ## Lazy Evaluation
 
-  Functions in factory params are evaluated at build time. This works in both maps and keyword
-  lists:
+  Functions in a body's map or keyword list are evaluated at build time. Other values are passed
+  through unchanged:
 
   ```elixir
-  # In maps
   %{
     created_at: fn -> DateTime.utc_now() end,               # 0-arity: called with no args
-    display_name: fn user -> "\#{user.username} (User)" end # 1-arity: receives parent map
+    display_name: fn user -> "\#{user.username} (User)" end # 1-arity: receives the parent map
   }
-
-  # In keyword lists
-  [
-    created_at: fn -> DateTime.utc_now() end,
-    label: fn kw -> "timeout-\#{kw[:timeout]}" end          # 1-arity: receives parent keyword list
-  ]
   ```
 
   > #### Lazy evaluation ordering {: .warning}
@@ -719,65 +453,33 @@ defmodule FactoryMan do
 
   ## Embedded Schemas
 
-  Factories for embedded schemas work like regular struct factories, but are not inserted with
-  Ecto:
+  A factory for an embedded schema generates the struct and params builders. It has no table, so
+  it gets insert functions only from an `insert:` capture or `insert_via:` targets:
 
   ```elixir
-  defmodule MyApp.Factories.Settings do
-    use FactoryMan, extends: MyApp.Factory
-
-    alias MyApp.Users.Settings
-
-    deffactory settings(params \\\\ %{}), struct: Settings do
-      base_params = %{
-        theme: "dark",
-        notifications: true
-      }
-
-      Map.merge(base_params, params)
-    end
+  deffactory settings(params \\\\ %{}), struct: MyApp.Users.Settings do
+    Map.merge(%{theme: "dark", notifications: true}, params)
   end
   ```
-
-  Embedded schemas generate `build_*_struct`, `build_*_params`, and `build_*_string_params`, plus
-  their matching `*_list` functions. They generate insert functions only for an `insert:` capture
-  or `insert_via:` targets.
 
   ## Direct Struct Factories (`body: :struct`)
 
-  For complex factories that need full control over struct construction, set `body: :struct`.
-  The factory body returns a struct directly instead of a params map:
+  With `body: :struct`, the body returns the struct itself, for factories that need full control
+  over construction. The full function family is still generated, including `build_*_params`, and
+  lazy values in the struct are resolved. It can be set at the module level and overridden per
+  factory:
 
   ```elixir
   deffactory invoice(params \\\\ %{}), struct: Invoice, body: :struct do
-    customer =
-      case params[:customer] do
-        %Customer{} = customer -> customer
-        _ -> MyApp.Factory.Accounts.insert_customer()
-      end
-
-    %Invoice{
-      customer: customer,
-      total: Map.get(params, :total, Enum.random(100..10_000))
-    }
+    %Invoice{total: Map.get(params, :total, 100), customer: build_customer_struct()}
   end
   ```
 
-  This generates the full function family, including `build_invoice_params` (derived from the
-  built struct). Lazy values in the returned struct are resolved as they are in a params body.
-  The `after_build_struct`, `before_insert`, and `after_insert` hooks still run. The
-  `before_build_params`, `after_build_params`, and `before_build_struct` hooks are skipped
-  since there is no params-to-struct conversion stage.
-
-  `body: :struct` can also be set at the module level with `use FactoryMan, body: :struct`,
-  then overridden per-factory with `body: :params` if needed. Non-struct factories in the
-  same module are unaffected; their `build_*` functions are always generated.
-
   ## Cookbook
 
-  A practical progression from a first factory through realistic defaults, variants,
-  associations, suite organization, hooks, strict params, and advanced presets lives in the
-  [Cookbook](cookbook.html) guide.
+  The [Cookbook](cookbook.html) is a practical progression from a first factory through realistic
+  defaults, variants, associations, suite organization, hooks, strict params, insert targets, and
+  advanced presets.
 
   ## Reflection and Debugging
 
@@ -797,21 +499,12 @@ defmodule FactoryMan do
   [:admin]
   ```
 
-  `:variants` lists a factory's variants by the names that `variants:` and `extends:` accept.
-
-  `assocs:` is code evaluated at build time, so it does not appear in `:opts`. `:factories` lists
-  every factory and variant registered in the module (variants under their full name), which
-  enables runtime dispatch without string-building function names:
-
-  ```elixir
-  def build_any(factory_module, factory_name, params) do
-    if factory_name not in factory_module.__factory_man__(:factories) do
-      raise ArgumentError, "unknown factory \#{inspect(factory_name)}"
-    end
-
-    apply(factory_module, :"build_\#{factory_name}_struct", [params])
-  end
-  ```
+  - `:opts` shows the resolved options, including each hook name's list in run order and the
+    resolved `insert:` and `insert_via:`. `assocs:` is code evaluated at build time, so it does not
+    appear.
+  - `:factories` lists every factory and variant in the module (variants under their full name),
+    for runtime dispatch without building function names from strings.
+  - `:variants` lists a factory's variants by the names that `variants:` and `extends:` accept.
   """
 
   defmacro __using__(opts \\ []) do
@@ -966,43 +659,20 @@ defmodule FactoryMan do
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
   - `:hooks` - A keyword list of hook functions to apply at different stages, chained with the
-    module's hooks (see Hooks section)
+    module's hooks (see Hooks)
   - `:repo` - Overrides the module-level repo for this factory
-  - `:assocs` - A keyword list mapping Ecto association keys to builders: a 1-arity function, a
-    2-arity function `(params, factory_params)`, or `{builder, options}` with `default: value`
-    and/or `required: true`. Each key is resolved before the body, which always receives it
-    resolved; an absent key is built with `%{}` (or treated as `default:`). Evaluated on every build; `params` is not in scope. Requires
-    an Ecto schema `struct:`. Direct associations only. See the Associations section in the
-    module documentation.
-  - `:strict` - Set to `true` to raise on param keys that are not fields of the `:struct`
-    option's struct, and on params the body ignores or changes. `[allow: [...]]` does the same,
-    except for the listed keys (see the Strict Params section). Ignored for non-struct factories.
+  - `:assocs` - A keyword list mapping Ecto association keys to builders, resolved before the
+    body. Requires an Ecto schema `struct:`. See Associations in the module documentation.
+  - `:strict` - `true` raises on param keys that are not fields of the `:struct` option's struct,
+    and on params the body ignores or changes. `[allow: [...]]` does the same, except for the
+    listed keys (see Strict Params). Ignored for non-struct factories.
 
   ## Generated Functions
 
-  For a factory named `user` with `struct: User` and a plain params argument that defaults to an
-  empty map, the following functions are generated. The insert functions shown use the default
-  `:ecto` insert target, which requires a configured repo and a table-backed Ecto schema. Each
-  `insert_via:` target adds `insert_user_via_<target>/0,1,2`,
-  `insert_user_via_<target>_list/1,2,3`, and `insert_user_struct_via_<target>/1,2`.
-
-  - `build_user_struct/0,1,2` - Returns an unsaved struct
-  - `build_user_params/0,1,2` - Clean params map derived from the built struct
-  - `build_user_string_params/0,1,2` - Same, with string keys
-  - `insert_user/0,1,2` - Inserts with the default insert target
-  - `build_user_struct_list/1,2,3` - Builds multiple structs
-  - `build_user_params_list/1,2,3` - Builds multiple params maps
-  - `build_user_string_params_list/1,2,3` - Builds multiple string-keyed params maps
-  - `insert_user_list/1,2,3` - Inserts multiple items with the default insert target
-  - `insert_user_struct/1,2` - Inserts an already-built struct through the insert pipeline
-
-  For a factory named `greeting` without `struct:`, simplified names are used:
-
-  - `build_greeting/1,2` - Returns the factory's value (`/2` takes options, e.g. `variants:`)
-  - `build_greeting_list/2,3` - Builds multiple items
-
-  With a default argument in the factory head, `build_greeting/0` and `build_greeting_list/1` are
-  also generated.
+  A struct factory generates the `build_*_struct`, `build_*_params`, `build_*_string_params`, and
+  insert families, and a factory without `struct:` generates `build_*` and `build_*_list`. See
+  Generated Functions in the module documentation for the full list and the rules that decide
+  which are generated.
 
   ## Examples
 
@@ -2461,10 +2131,8 @@ defmodule FactoryMan do
 
   ## Example
 
-      def user_factory do
-        %{
-          username: FactoryMan.sequence("joe")
-        }
+      deffactory user(params \\\\ %{}), struct: User do
+        Map.merge(%{username: FactoryMan.sequence("joe")}, params)
       end
 
   If you want to customize the returned string you can use `sequence/2`.
@@ -2481,18 +2149,14 @@ defmodule FactoryMan do
 
   ## Example with a formatter function
 
-      def user_factory do
-        %{
-          email: FactoryMan.sequence(:email, fn n -> "me-\#{n}@foo.com" end)
-        }
+      deffactory user(params \\\\ %{}), struct: User do
+        Map.merge(%{email: FactoryMan.sequence(:email, fn n -> "me-\#{n}@foo.com" end)}, params)
       end
 
   ## Example with a list
 
-      def user_factory do
-        %{
-          name: FactoryMan.sequence(:name, ["Joe", "Mike", "Sarah"])
-        }
+      deffactory user(params \\\\ %{}), struct: User do
+        Map.merge(%{name: FactoryMan.sequence(:name, ["Joe", "Mike", "Sarah"])}, params)
       end
   """
 
@@ -2507,10 +2171,8 @@ defmodule FactoryMan do
 
   ## Example
 
-      def money_factory do
-        %{
-          cents: FactoryMan.sequence(:cents, fn n -> "\#{n}" end, start_at: 600)
-        }
+      deffactory price(params \\\\ %{}), struct: Price do
+        Map.merge(%{cents: FactoryMan.sequence(:cents, fn n -> n end, start_at: 600)}, params)
       end
   """
 

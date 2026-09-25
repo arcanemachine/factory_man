@@ -70,6 +70,16 @@ you are testing instead of building one representation and converting it by hand
 | Several independently built values        | The matching `*_list` function |
 | A row that already exists in the database | `insert_user/0,1,2`            |
 
+Use a struct when the code under test takes a record and no database row is needed:
+
+```elixir
+test "formats a display name" do
+  user = MyApp.Factory.build_user_struct(%{username: "alice"})
+
+  assert MyApp.Accounts.display_name(user) == "@alice"
+end
+```
+
 Use params when exercising a changeset or context boundary:
 
 ```elixir
@@ -104,12 +114,6 @@ test "loads a user by username" do
 
   assert MyApp.Repo.get_by!(MyApp.Accounts.User, username: "alice").id == user.id
 end
-```
-
-Repo options can be passed as the final argument:
-
-```elixir
-MyApp.Factory.insert_user(%{username: "alice"}, returning: true)
 ```
 
 ### Build several independent values
@@ -419,10 +423,8 @@ defmodule MyApp.Factory.Blog do
 end
 ```
 
-`assocs:` maps each association key to a builder: any 1-arity function, including local
-captures, remote captures, and anonymous functions. Every declared key is resolved **before** the
-body runs, so the body always receives it resolved (here, `params.author` is a `%User{}`), and the
-canonical `Map.merge(base_params, params)` ending is always correct.
+Every declared key is resolved **before** the body runs, so the body always receives it resolved
+(here, `params.author` is a `%User{}`).
 
 **The builder is the default.** An absent key is built with `%{}` (a singular association) or
 resolves to `[]` (a plural one). Don't also put a default for a declared key in `base_params`; it
@@ -436,9 +438,6 @@ assocs: [
   tags: {&build_tag_struct/1, default: [%{name: "elixir"}, %{}]}
 ]
 ```
-
-A `default:` is `nil` or a params map for a singular association, and a list of params maps for a
-plural one. An absent key is treated as its `default:`, then resolved like any caller value.
 
 Callers can supply nested params, existing structs, or `nil`. A plural association may mix
 existing structs and params maps:
@@ -455,20 +454,9 @@ test "builds a post from nested input" do
 end
 ```
 
-| Caller supplies | Singular association | Plural association |
-| --- | --- | --- |
-| key absent | treated as `default:` (`%{}` unless set) | treated as `default:` (`[]` unless set) |
-| `nil` | `nil` | raise (use `[]`) |
-| params map | built by the builder | raise |
-| struct | reused unchanged; the builder is not called | raise |
-| list of maps/structs | raise | each item resolved in order |
-
-Supplied structs and builder results must be the association's schema, so a mis-wired builder
-such as `author: &build_tag_struct/1` raises on its first build. A builder for a singular
-association may return `nil` when there should be no associated value. Keys must be direct Ecto
-associations of the factory's schema; embeds and `:through` associations cannot be declared.
-The declaration is validated when the factory first builds, so a mistake surfaces in the first
-test that uses the factory.
+The rules for each kind of caller value are in the
+[`FactoryMan` module documentation](https://hexdocs.pm/factory_man/FactoryMan.html#module-associations)
+and the [cheat sheet](CHEATSHEET.cheatmd).
 
 ### Require an association
 
@@ -830,10 +818,6 @@ MyApp.Factory.build_user_struct(%{username: "alice"})
 #    ...
 ```
 
-That check compares each field the body received with the body's result. A map field passes when
-every key the caller gave comes through unchanged, so a body may fill in the rest of a map. Lazy
-function values and association keys are not compared.
-
 Strict validation also applies through params builders, inserts, list builders, and variants.
 Turn it on in the base factory, so every child factory is strict unless one overrides the option:
 
@@ -870,8 +854,7 @@ end
 ```
 
 Keys in `allow:` are not checked at all. Other keys outside the struct fields still raise, and
-other fields must still come through the body unchanged. Strict params are ignored for non-struct
-factories because those factories have no struct field set to validate against.
+other fields must still come through the body unchanged.
 
 ## Organize a growing factory suite
 
@@ -1353,40 +1336,8 @@ registered factories. Variants appear under their full registered names.
 `__factory_man__(:variants, :user)` lists a factory's variants by the names that `variants:`
 accepts, e.g. to build every variant of a factory in a test.
 
-For debugging, inspect the resolved options at module or factory level:
-
-```elixir
-MyApp.Factory.Accounts.__factory_man__(:opts)
-MyApp.Factory.Accounts.__factory_man__(:opts, :user)
-```
-
-This can answer whether a child inherited the expected repo, hook, strict setting, or struct module
-without guessing from generated function names. `assocs:` is code evaluated at build time, so it
-does not appear in these options.
-
 ## Habits that keep factories easy to use
 
-- **Merge caller params last.** `Map.merge(base_params, params)` makes defaults predictable and
-  keeps tests in control. Force a value only in a preset whose name promises it.
-- **Turn on `strict: true` in the base factory.** It catches misspelled keys and params a body
-  ignores, in every factory that extends it.
-- **Pass maps to struct factories.** Keyword lists are appropriate only when the factory itself
-  accepts and returns keyword-list data.
-- **Use generated names.** A struct factory named `user` generates `build_user_struct`,
-  `build_user_params`, and `insert_user`; it does not generate `build_user`.
-- **Return params from normal struct factories.** Return a struct only with `body: :struct`.
-- **Qualify helpers.** Call `FactoryMan.sequence`, `FactoryMan.assoc`, and
-  `FactoryMan.assoc_list`; `use FactoryMan` imports only the definition macros.
-- **Let an explicit `nil` mean "none".** Every association tool preserves a caller's `nil`. If a
-  factory needs a record regardless, add the fallback in its own body.
-- **Build unless persistence matters.** An in-memory graph is usually enough. Insert when a query,
-  constraint, or foreign key requires a row.
-- **Let the builder be the default.** Declare associations with `assocs:` rather than defaults in
-  `base_params`; a builder runs only when the caller does not supply the key.
-- **Keep `default:` values literal.** They are evaluated on every build.
-- **Give self-referential associations `default: nil`.** A default build that starts again inside
-  itself raises instead of recursing forever.
-- **Reset sequences only when exact positions matter.** Most tests should assert behavior rather
-  than the counter value. In async tests, reset only the sequence names that the test uses.
-- **Keep the cookbook for recipes and the API reference for exhaustive semantics.** When an edge
-  case matters, consult the [`FactoryMan` module documentation](https://hexdocs.pm/factory_man/FactoryMan.html).
+The [usage rules](usage-rules.md) list the rules and anti-patterns for writing factories. The
+[`FactoryMan` module documentation](https://hexdocs.pm/factory_man/FactoryMan.html) is the full
+reference for edge cases.

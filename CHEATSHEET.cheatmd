@@ -140,7 +140,7 @@ every variant after it in the list.
 
 | Value given              | Kept when                                  |
 | ------------------------ | ------------------------------------------ |
-| Plain map                | Each of its keys is kept (recursively)     |
+| Plain map                | Each of its keys is kept (recursively), also when built into a struct |
 | Anything else            | The built value is `==` to it              |
 | Function (lazy)          | Not checked                                |
 | Association key          | Not checked                                |

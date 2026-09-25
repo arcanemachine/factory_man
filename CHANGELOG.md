@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `admin` of `user` and a factory `admin_user`), or a generated function with the name of a
   function defined earlier in the module, raise at compile time, naming both sources. Before,
   they only produced compiler warnings, and the second definition joined the first.
+- `FactoryMan.Params` is internal and no longer has published documentation. The generated
+  `build_*_params` and `build_*_string_params` functions are the public interface.
+- The module documentation is reorganized into a reference, with recipes moved to the Cookbook.
 
 ## [0.16.0] - 2026-09-24
 
