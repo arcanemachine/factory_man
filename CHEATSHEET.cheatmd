@@ -30,6 +30,20 @@ An `insert:` capture inserts any struct; `insert: false` removes them.
 
 Targets run no insert hooks and do not check for an already-inserted struct.
 
+### Disabling families (`disable: [string_params: true]`)
+
+| Key                   | Removes                                   |
+| --------------------- | ----------------------------------------- |
+| `:params`             | `build_*_params` and its list             |
+| `:string_params`      | `build_*_string_params` and its list      |
+| `:struct_list`        | `build_*_struct_list`                     |
+| `:params_list`        | `build_*_params_list`                     |
+| `:string_params_list` | `build_*_string_params_list`              |
+| `:insert_list`        | `insert_*_list`, including target lists   |
+| `:non_struct_list`    | A non-struct factory's `build_*_list`     |
+
+`false` enables an inherited family again. `build_*_struct` is always generated.
+
 ### Non-struct factory (`deffactory payload(params \\ %{})`)
 
 | Function              | Returns                   |
@@ -70,6 +84,7 @@ Every function of the base factory has a variant counterpart.
 | `:body`    | Default `:body` for the module             |
 | `:insert`  | Default `:insert` for the module           |
 | `:insert_via` | Insert targets for the module           |
+| `:disable` | Function families to switch off            |
 
 ### `deffactory`
 
@@ -83,6 +98,7 @@ Every function of the base factory has a variant counterpart.
 | `:repo`    | Overrides the module's repo                          |
 | `:insert`  | `:ecto` (default), `false`, or `&M.fun/2`            |
 | `:insert_via` | `name: &M.fun/2` adds or replaces, `name: false` removes |
+| `:disable` | `family: true` switches off, `family: false` switches back on |
 
 ### `defvariant`
 
@@ -216,5 +232,6 @@ every variant after it in the list.
 | ---------------------------------- | ---------------------------------------- |
 | `__factory_man__(:opts)`           | The module's resolved options            |
 | `__factory_man__(:opts, :user)`    | A factory's or variant's merged options  |
+| `__factory_man__(:opts, :user)[:disable]` | The disabled families (`[]` by default) |
 | `__factory_man__(:factories)`      | Factories and variants (full names)      |
 | `__factory_man__(:variants, :user)`| A factory's variant names                |

@@ -923,6 +923,30 @@ end
 Keep the parent focused on shared behavior; domain-specific factory definitions belong in the child
 modules that use them.
 
+### Switch off functions the suite does not use
+
+A suite that never calls some generated functions can switch them off in the base factory. Fewer
+functions keep autocompletion and the generated docs focused:
+
+```elixir
+defmodule MyApp.Factory do
+  use FactoryMan,
+    repo: MyApp.Repo,
+    disable: [string_params: true, params_list: true]
+end
+```
+
+A factory that needs one of them back enables it again with `false`:
+
+```elixir
+deffactory registration(params \\ %{}), struct: Registration, disable: [string_params: false] do
+  Map.merge(%{email: FactoryMan.sequence(:email, &"user#{&1}@example.com")}, params)
+end
+```
+
+`build_*_struct` is always generated, and inserts are switched off with `insert: false`. Check
+what a factory has disabled with `__factory_man__(:opts, :registration)[:disable]`.
+
 ### Use hooks for cross-cutting behavior
 
 Hooks transform values at defined points in the build and insert pipeline. A factory-local hook is

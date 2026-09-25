@@ -51,6 +51,11 @@ For `deffactory user(params \\ %{}), struct: User`:
   option list: `:variants` is FactoryMan's, and every other option goes to the insert target
   (`Repo.insert!/2` by default).
 - With `:ecto`, `insert_*_struct` raises on a struct that has already been inserted.
+- `disable: [family: true]` switches off unused families: `:params`, `:string_params`,
+  `:struct_list`, `:params_list`, `:string_params_list`, `:insert_list`, and `:non_struct_list`.
+  It cascades per key; `family: false` enables an inherited family again. `build_*_struct` is
+  always generated, and inserts are switched off with `insert: false`. The disabled families show
+  in `__factory_man__(:opts, name)[:disable]`.
 
 ## Insert targets
 

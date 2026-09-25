@@ -186,6 +186,7 @@ The full reference lives in the
 - **Factory inheritance** (`extends:`) - share repo, hooks, and helper functions
 - **Direct struct factories** (`body: :struct`) - full control over struct construction
 - **Insert targets** (`insert:`, `insert_via:`) - insert into other stores, such as a search index
+- **Disabling function families** (`disable:`) - switch off generated functions a suite does not use
 - **Embedded schemas** - no Ecto insert functions, detected automatically
 - **[Cookbook](COOKBOOK.md)** - a practical progression from a first factory through realistic
   defaults, variants, associations, suite organization, hooks, strict params, insert targets, and
