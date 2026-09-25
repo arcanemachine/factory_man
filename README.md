@@ -24,7 +24,9 @@ def deps do
 end
 ```
 
-Then run `mix deps.get`.
+Then run `mix deps.get`, and add `:factory_man` to `import_deps` in `.formatter.exs`, so
+`mix format` keeps `defvariant admin, for: :user, defaults: %{...}` free of parentheses.
+`import_deps` needs the dependency in `:dev`, as above.
 
 ## Quick Tour
 

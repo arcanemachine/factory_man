@@ -109,6 +109,10 @@ build_user_struct(%{}, variants: [:admin, :confirmed])
   wins over the variants it extends. This holds for variants that merge params last.
 - A variant that merges params first (`Map.merge(params, %{banned: true})`) forces its values: it
   wins over the caller and over later variants. Use it only for presets whose name is a promise.
+- A variant that only sets values needs no body: `defvariant admin, for: :user, defaults:
+  %{role: "admin"}`. `defaults:` loses to the caller, `force:` wins over the caller, and a variant
+  with only `extends:` names a combination. Add `:factory_man` to `import_deps` in
+  `.formatter.exs` so `mix format` leaves them without parentheses.
 - List a factory's variant names with `__factory_man__(:variants, factory_name)`.
 
 ## Associations

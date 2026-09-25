@@ -331,9 +331,7 @@ assert user.role == "admin"
 A variant that only extends others names a combination that many tests use:
 
 ```elixir
-defvariant confirmed_admin(params \\ %{}), for: :user, extends: [:admin, :confirmed] do
-  params
-end
+defvariant confirmed_admin, for: :user, extends: [:admin, :confirmed]
 
 MyApp.Factory.build_confirmed_admin_user_struct()
 ```
@@ -343,21 +341,36 @@ same module.
 
 ### Choose defaults or forced values
 
-Which side of `Map.merge/2` a variant puts `params` on decides who wins when the caller passes the
-same key. Use defaults for convenience presets, and forced values for presets whose name is a
-promise:
+A variant's defaults can be overridden by the caller; its forced values cannot. Use defaults for
+convenience presets, and forced values for presets whose name is a promise. A variant that only
+sets values declares them:
 
 ```elixir
 # Defaults: the caller can override the role
-defvariant admin(params \\ %{}), for: :user do
-  Map.merge(%{role: "admin"}, params)
-end
+defvariant admin, for: :user, defaults: %{role: "admin"}
 
 # Forced: a banned user is always banned, whatever the caller passes
-defvariant banned(params \\ %{}), for: :user do
-  Map.merge(params, %{banned: true})
+defvariant banned, for: :user, force: %{banned: true}
+```
+
+`defaults:` and `force:` are evaluated on every build. Wrap a value in a lazy function when it
+should only be computed when the caller does not supply the key:
+
+```elixir
+defvariant confirmed, for: :user, defaults: %{confirmed_at: fn -> DateTime.utc_now() end}
+```
+
+When the values are computed from the params, write a body instead. Which side of
+`Map.merge/2` the body puts `params` on decides who wins:
+
+```elixir
+defvariant renamed(params \\ %{}), for: :user do
+  Map.merge(%{display_name: String.upcase(params[:username] || "user")}, params)
 end
 ```
+
+Add `:factory_man` to `import_deps` in `.formatter.exs`, so `mix format` keeps a variant without a
+body free of parentheses.
 
 In a `variants:` list, a variant that forces a value wins over the caller and over every variant
 after it in the list.

@@ -58,7 +58,8 @@ Targets run no insert hooks and do not check for an already-inserted struct.
 | `build_admin_user_struct/0,1,2` | `as: :boss` renames to `build_boss_struct` |
 | `insert_admin_user/0,1,2`   | Inserts through the base pipeline  |
 
-Every function of the base factory has a variant counterpart.
+Every function of the base factory has a variant counterpart. Without a body:
+`defvariant admin, for: :user, defaults: %{role: "admin"}` (or `force:`, or only `extends:`).
 
 ### Which function?
 
@@ -108,6 +109,8 @@ Every function of the base factory has a variant counterpart.
 | `:extends` | Variants of the same factory to build on             |
 | `:as`      | Name for the generated functions                     |
 | `:assocs`  | Association builders, resolved before the variant body |
+| `:defaults`| Without a body: a map the caller's params override |
+| `:force`   | Without a body: a map that overrides the caller's params |
 
 ### Function options
 
