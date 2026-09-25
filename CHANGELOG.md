@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - Unreleased
+
+### Added
+
+- Variants without a body: `defvariant admin, for: :user, defaults: %{role: "admin"}`.
+  `defaults:` is merged under the caller's params and `force:` over them, and a variant with only
+  `extends:` names a combination (`defvariant banned_admin, for: :user, extends: [:admin,
+  :banned]`). Both options are evaluated on every build. With `assocs:`, the values are merged
+  before the associations resolve.
+- `.formatter.exs` exports `locals_without_parens` for `defvariant/2`. Add `:factory_man` to
+  `import_deps` (which needs the dependency in `:dev`) to keep variants without a body free of
+  parentheses.
+
+### Changed
+
+- A key in a `body: :params` result that is not a field of the struct raises an `ArgumentError`
+  that names the factory, the keys, and the fix, instead of the `KeyError` from `struct!/2`.
+
 ## [0.18.0] - 2026-09-25
 
 ### Added

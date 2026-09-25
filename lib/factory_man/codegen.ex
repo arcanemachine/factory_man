@@ -33,10 +33,11 @@ defmodule FactoryMan.Codegen do
 
   @doc """
   The params pipeline of a struct factory with `body: :params`: lazy evaluation of the body's
-  result, the strict check that the body kept its params, the params-stage hooks, `struct!/2`,
-  then the `after_build_struct` hooks.
+  result, the strict check that the body kept its params, the params-stage hooks, `struct!/2`
+  (after checking for keys that are not fields), then the `after_build_struct` hooks. `allow` is
+  the strict `allow:` list, for the error message.
   """
-  def build_struct_pipeline(block, hooks, struct_module, params_check) do
+  def build_struct_pipeline(block, hooks, struct_module, params_check, {factory_name, allow}) do
     params =
       quote(do: FactoryMan.evaluate_lazy_attributes(unquote(block)))
       |> check_params_used(params_check, struct_module)
@@ -44,7 +45,15 @@ defmodule FactoryMan.Codegen do
       |> hook_pipe(hooks, :before_build_struct)
 
     hook_pipe(
-      quote(do: struct!(unquote(struct_module), unquote(params))),
+      quote do
+        FactoryMan._struct!(
+          unquote(struct_module),
+          unquote(params),
+          unquote(allow),
+          __MODULE__,
+          unquote(factory_name)
+        )
+      end,
       hooks,
       :after_build_struct
     )

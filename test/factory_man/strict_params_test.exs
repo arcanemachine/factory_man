@@ -315,4 +315,51 @@ defmodule FactoryMan.StrictParamsTest do
       assert Factory.build_greeting(%{hello: "there"}) == %{hello: "there"}
     end
   end
+
+  describe "non-field keys in the body's result" do
+    defp compile_factory!(opts, body) do
+      [{module, _binary}] =
+        Code.compile_string("""
+        defmodule FactoryMan.StrictParamsTest.NonField#{System.unique_integer([:positive])} do
+          use FactoryMan
+
+          deffactory user(params \\\\ %{}), struct: FactoryMan.StrictParamsTest.User#{opts} do
+            #{body}
+          end
+        end
+        """)
+
+      module
+    end
+
+    test "raise before struct!/2, naming the factory, the keys, and the fix" do
+      module = compile_factory!("", ~s|Map.merge(%{username: "u", nickname: "n"}, params)|)
+
+      assert_raise ArgumentError,
+                   ~r/factory :user in .* returned keys that are not fields of FactoryMan.StrictParamsTest.User: \[:nickname\]\. Remove them from the body's result \(e.g. with Map.pop\/3\)\.$/,
+                   fn -> module.build_user_struct() end
+    end
+
+    test "add a note for a key in allow:" do
+      module =
+        compile_factory!(", strict: [allow: [:count]]", ~s|Map.merge(%{username: "u"}, params)|)
+
+      assert_raise ArgumentError,
+                   ~r/\[:count\].* may be passed in, but must not reach the struct/,
+                   fn ->
+                     module.build_user_struct(%{count: 2})
+                   end
+    end
+
+    test "build normally without such keys" do
+      module =
+        compile_factory!(
+          ", strict: [allow: [:count]]",
+          ~s|{_count, params} = Map.pop(params, :count); Map.merge(%{username: "u"}, params)|
+        )
+
+      assert %FactoryMan.StrictParamsTest.User{username: "u"} =
+               module.build_user_struct(%{count: 2})
+    end
+  end
 end

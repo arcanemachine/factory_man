@@ -105,9 +105,10 @@ defmodule FactoryMan do
   ## Defining Factories
 
   `deffactory` defines a named factory with one argument and a body. With `struct:` and the default
-  `body: :params`, the body returns a map of that struct's fields. With `body: :struct`, it returns
-  the struct itself. Without `struct:`, the body can return any value, and the factory generates
-  only `build_<name>` and `build_<name>_list`:
+  `body: :params`, the body returns a map of that struct's fields (a key that is not a field
+  raises, naming it). With `body: :struct`, it returns the struct itself. Without `struct:`, the
+  body can return any value, and the factory generates only `build_<name>` and
+  `build_<name>_list`:
 
   ```elixir
   deffactory search_opts(overrides \\\\ []) do
@@ -206,8 +207,9 @@ defmodule FactoryMan do
   - `:insert` and `:insert_via` - The default and named insert targets (see Insert Targets)
   - `:disable` - Function families to switch off (see Disabling function families)
 
-  **Variant-level** (set with `defvariant`): `:for`, `:as`, `:extends`, and `:assocs` (see Variant
-  Factories). Unknown options raise at every level.
+  **Variant-level** (set with `defvariant`): `:for`, `:as`, `:extends`, `:assocs`, and, for a
+  variant without a body, `:defaults` and `:force` (see Variant Factories). Unknown options raise
+  at every level.
 
   ## Insert Targets
 
@@ -289,7 +291,9 @@ defmodule FactoryMan do
   it sees what the variants pass on; a variant body that drops a caller's key is not checked.
 
   `strict: [allow: [...]]` exempts keys from both checks: a key that is not a field may be passed
-  (e.g. an input used only to derive other fields), and a field may be changed by the body:
+  (e.g. an input used only to derive other fields), and a field may be changed by the body. An
+  allowed key that is not a field must not reach the struct, so the body removes it (here with
+  `Map.pop/3`):
 
   ```elixir
   deffactory invoice(params \\\\ %{}), struct: Invoice, strict: [allow: [:line_item_count]] do
@@ -423,6 +427,33 @@ defmodule FactoryMan do
     win over the caller and over later variants. See
     [Choose defaults or forced values](cookbook.html#choose-defaults-or-forced-values).
 
+  ### Variants without a body
+
+  A variant that only sets values can declare them instead of writing a body:
+
+  ```elixir
+  defvariant admin, for: :user, defaults: %{role: "admin"}
+  defvariant banned, for: :user, force: %{banned: true}
+  defvariant banned_admin, for: :user, extends: [:admin, :banned]
+  ```
+
+  - `defaults:` is merged under the params (`Map.merge(defaults, params)`), so the caller wins.
+    `force:` is merged over them (`Map.merge(params, force)`), so the variant wins. With both, a key
+    in both is taken from `force:`.
+  - A variant without a body needs `defaults:`, `force:`, `extends:`, or `assocs:`, and its head
+    takes no argument (`admin` or `admin()`). `defaults:` and `force:` with a do block raise.
+  - `defaults:` and `force:` are code, evaluated on every build like a body, so they can call
+    functions (`defaults: admin_defaults()`); each must evaluate to a map. Lazy values in them
+    reach the base factory as params and are resolved there.
+  - With `assocs:`, the values are merged first and the associations resolved after, so a
+    `defaults:` value for a declared key is what the variant's builder builds from.
+  - Any base factory works, as long as its params are maps.
+  - A variant without a body never drops a caller's key, so the base factory's strict check sees
+    every key the caller passed.
+  - To keep `mix format` from adding parentheses, add `:factory_man` to `import_deps` in
+    `.formatter.exs`. `import_deps` needs the dependency in the environment `mix format` runs in
+    (`only: [:dev, :test]`); otherwise add `defvariant: 2` to your own `locals_without_parens`.
+
   ### Combining variants with `variants:`
 
   Every generated function of a factory takes a `variants:` option, which applies several
@@ -453,8 +484,8 @@ defmodule FactoryMan do
 
   A listed variant brings the variants it extends, and each variant is applied once, at its first
   position in the list, so a variant wins over the variants it extends whatever the list order. A
-  variant is defined after the variants it extends. A variant whose body is just `params` gives a
-  recurring combination a name.
+  variant is defined after the variants it extends. A variant with only `extends:` and no body
+  gives a recurring combination a name (see Variants without a body).
 
   ## Sequences
 
@@ -536,8 +567,8 @@ defmodule FactoryMan do
   ```
 
   - `:opts` shows the resolved options, including each hook name's list in run order, the
-    resolved `insert:` and `insert_via:`, and the disabled families (`disable:`). `assocs:` is code evaluated at build time, so it does not
-    appear.
+    resolved `insert:` and `insert_via:`, and the disabled families (`disable:`). `assocs:` is
+    code evaluated at build time, so it does not appear.
   - `:factories` lists every factory and variant in the module (variants under their full name),
     for runtime dispatch without building function names from strings.
   - `:variants` lists a factory's variants by the names that `variants:` and `extends:` accept.
@@ -564,6 +595,7 @@ defmodule FactoryMan do
         only: [
           deffactory: 2,
           deffactory: 3,
+          defvariant: 2,
           defvariant: 3
         ]
 
@@ -901,7 +933,8 @@ defmodule FactoryMan do
                   block,
                   hooks,
                   merged_opts[:struct],
-                  params_check
+                  params_check,
+                  {factory_name, strict || []}
                 )
               )
             end)
@@ -1061,9 +1094,97 @@ defmodule FactoryMan do
 
   Variants are listed by their name (e.g. `:admin`) in `extends:` and in the `variants:` option
   of the generated functions (see Variant Factories in the module documentation).
+
+  For a variant without a body, see `defvariant/2`.
   """
 
   defmacro defvariant(variant_head, opts, do: block) do
+    with {name, _meta, context} when is_atom(name) and is_atom(context) <- variant_head do
+      raise ArgumentError,
+            "defvariant #{name}: a variant with a do block takes one argument, e.g. " <>
+              "`defvariant #{name}(params \\\\ %{}), for: ...`; a variant without a body uses " <>
+              "defaults:, force:, extends:, or assocs:."
+    end
+
+    if is_list(opts) and Keyword.keyword?(opts) and
+         (Keyword.has_key?(opts, :defaults) or Keyword.has_key?(opts, :force)) do
+      raise ArgumentError,
+            "defvariant #{variant_name_for_error(variant_head)}: defaults: and force: are for " <>
+              "a variant without a do block. Use one form: either the options or a body."
+    end
+
+    variant_ast(variant_head, opts, block, false, __CALLER__)
+  end
+
+  @doc """
+  Defines a variant factory without a body, from its options.
+
+      defvariant admin, for: :user, defaults: %{role: "admin"}
+      defvariant banned, for: :user, force: %{banned: true}
+      defvariant banned_admin, for: :user, extends: [:admin, :banned]
+
+  Takes the options of `defvariant/3`, plus:
+
+  - `:defaults` - A map merged under the caller's params, so the caller wins.
+  - `:force` - A map merged over the caller's params, so the variant wins.
+
+  Both are evaluated on every build. At least one of `:defaults`, `:force`, `:extends`, and
+  `:assocs` is required. See Variants without a body in the module documentation.
+  """
+  defmacro defvariant(variant_head, opts) do
+    variant_name =
+      case variant_head do
+        {name, _meta, context} when is_atom(name) and is_atom(context) ->
+          name
+
+        {name, _meta, []} when is_atom(name) ->
+          name
+
+        _other ->
+          raise ArgumentError,
+                "defvariant #{variant_name_for_error(variant_head)}: the declarative form (without a " <>
+                  "do block) takes no argument. Write `defvariant name, for: ...` or add a do block."
+      end
+
+    subject = "defvariant #{variant_name}"
+    _validate_opts!(opts, [:for, :as, :assocs, :extends, :defaults, :force], subject)
+    {defaults_ast, opts} = Keyword.pop(opts, :defaults)
+    {force_ast, opts} = Keyword.pop(opts, :force)
+
+    if Enum.all?([defaults_ast, force_ast, opts[:extends], opts[:assocs]], &is_nil/1) do
+      raise ArgumentError,
+            "#{subject}: a variant without a body needs defaults:, force:, extends:, or assocs:"
+    end
+
+    # The generated functions get an implicit `params \\ %{}` head. The variable name is unlikely
+    # to be used in `defaults:` or `force:`, which are the caller's code.
+    params_var = Macro.var(:factory_man_variant_params, nil)
+    head = {variant_name, [], [{:\\, [], [params_var, {:%{}, [], []}]}]}
+
+    block =
+      if is_nil(defaults_ast) and is_nil(force_ast) do
+        params_var
+      else
+        quote do
+          FactoryMan._merge_variant_values!(
+            unquote(params_var),
+            unquote(defaults_ast),
+            unquote(force_ast),
+            unquote(subject)
+          )
+        end
+      end
+
+    variant_ast(head, opts, block, true, __CALLER__)
+  end
+
+  defp variant_name_for_error({name, _meta, _args}) when is_atom(name), do: name
+  defp variant_name_for_error(head), do: Macro.to_string(head)
+
+  # The definitions of a variant. `declarative?` is `true` for a variant without a body, whose
+  # `block` merges `defaults:` and `force:` into the params before `assocs:` resolves them, so a
+  # `defaults:` value for a declared key is what the builder builds from.
+  defp variant_ast(variant_head, opts, block, declarative?, caller) do
     extraction = extract_factory_args(variant_head)
 
     variant_name = extraction.name
@@ -1092,9 +1213,10 @@ defmodule FactoryMan do
               "got: #{inspect(extends)}"
     end
 
-    caller_module = __CALLER__.module
+    caller_module = caller.module
 
     quote bind_quoted: [
+            declarative?: declarative?,
             variant_name: variant_name,
             base_factory_name: base_factory_name,
             as_name: as_name,
@@ -1164,10 +1286,20 @@ defmodule FactoryMan do
 
       # The variant's step (its associations, then its body) returns the params for the next
       # step. Every chain that includes the variant runs this step.
-      defp unquote(FactoryMan._variant_step_fn(full_name))(unquote(arg_ast_no_default)) do
-        unquote(association_step)
+      if declarative? do
+        defp unquote(FactoryMan._variant_step_fn(full_name))(unquote(arg_ast_no_default)) do
+          unquote(user_var) = unquote(block)
 
-        unquote(block)
+          unquote(association_step)
+
+          unquote(user_var)
+        end
+      else
+        defp unquote(FactoryMan._variant_step_fn(full_name))(unquote(arg_ast_no_default)) do
+          unquote(association_step)
+
+          unquote(block)
+        end
       end
 
       projections = %{
@@ -1456,6 +1588,50 @@ defmodule FactoryMan do
     end
   end
 
+  # `struct!/2` raises a `KeyError` for a key that is not a field, which does not say where the key
+  # came from. The keys are checked first, so the error names the factory and the fix.
+  @doc false
+  def _struct!(struct_module, params, allow, module, factory_name) do
+    keys = if is_map(params), do: Map.keys(params), else: Keyword.keys(params)
+
+    case keys -- Map.keys(struct_module.__struct__()) do
+      [] ->
+        struct!(struct_module, params)
+
+      unknown ->
+        allow_note =
+          if Enum.any?(unknown, &(&1 in allow)) do
+            " Keys in strict: [allow: [...]] may be passed in, but must not reach the struct."
+          else
+            ""
+          end
+
+        raise ArgumentError,
+              "factory :#{factory_name} in #{inspect(module)} returned keys that are not fields " <>
+                "of #{inspect(struct_module)}: #{inspect(unknown)}. Remove them from the body's " <>
+                "result (e.g. with Map.pop/3)." <> allow_note
+    end
+  end
+
+  @doc false
+  def _merge_variant_values!(params, defaults, force, subject) do
+    unless is_map(params) and not is_struct(params) do
+      raise ArgumentError,
+            "#{subject} merges defaults: and force: into its params, so its params must be a " <>
+              "map, got: #{inspect(params)}"
+    end
+
+    for {option, value} <- [defaults: defaults, force: force],
+        not is_nil(value) and not (is_map(value) and not is_struct(value)) do
+      raise ArgumentError,
+            "#{subject}: #{option}: must be a map, got: #{inspect(value)}"
+    end
+
+    params = if defaults, do: Map.merge(defaults, params), else: params
+
+    if force, do: Map.merge(params, force), else: params
+  end
+
   @doc false
   def _reject_struct_variants!(insert_opts, insert_struct_function, insert_function) do
     if Keyword.has_key?(insert_opts, :variants) do
@@ -1596,6 +1772,10 @@ defmodule FactoryMan do
   # and variations.
   defp extract_factory_args({name, _, [arg_ast]}) when is_atom(name) do
     Map.put(parse_arg_ast(arg_ast), :name, name)
+  end
+
+  defp extract_factory_args({name, _, context}) when is_atom(name) and is_atom(context) do
+    extract_factory_args({name, [], []})
   end
 
   defp extract_factory_args({name, _, args}) when is_atom(name) and is_list(args) do

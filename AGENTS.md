@@ -48,6 +48,7 @@ test/
       embedded_schema.ex
   factory_man/
     assoc_test.exs
+    declarative_variants_test.exs
     disable_test.exs
     extends_test.exs
     hooks_test.exs
