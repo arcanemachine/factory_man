@@ -68,6 +68,40 @@ defmodule FactoryMan do
   `insert_<name>_via_<target>` family for each `insert_via:` target. `body: :struct` changes how
   the struct is built, not which functions are generated.
 
+  ### Disabling function families
+
+  `disable:` switches off function families that a test suite does not use. `true` disables a
+  family, and `false` enables an inherited one again:
+
+  ```elixir
+  use FactoryMan, repo: MyApp.Repo, disable: [string_params: true, insert_list: true]
+
+  deffactory user(params \\\\ %{}), struct: User, disable: [string_params: false] do
+    Map.merge(%{username: FactoryMan.sequence("user")}, params)
+  end
+  ```
+
+  | Key                   | Removes                                                   |
+  | --------------------- | --------------------------------------------------------- |
+  | `:params`             | `build_*_params/0,1,2` and its list                       |
+  | `:string_params`      | `build_*_string_params/0,1,2` and its list                |
+  | `:struct_list`        | `build_*_struct_list/1,2,3`                               |
+  | `:params_list`        | `build_*_params_list/1,2,3`                               |
+  | `:string_params_list` | `build_*_string_params_list/1,2,3`                        |
+  | `:insert_list`        | `insert_*_list/1,2,3`, including `insert_via:` target lists |
+  | `:non_struct_list`    | A non-struct factory's `build_*_list/1,2,3`                |
+
+  - `:params` and `:string_params` are independent: `build_*_string_params` does not use
+    `build_*_params`, so either can be disabled alone.
+  - Everything else is always generated. `build_*_struct` cannot be disabled, since every other
+    family builds on it, and inserts are switched off with `insert:` and `insert_via:`.
+  - `disable:` cascades per key, and variants follow their base factory. `false` on a family that
+    is not disabled has no effect.
+  - A key for the other kind of factory (`:non_struct_list` on a struct factory, or any other key
+    on a non-struct factory) raises when written on the factory itself, whatever its value, and is
+    ignored when inherited.
+  - A disabled function's name is free: the module can define a function with that name.
+
   ## Defining Factories
 
   `deffactory` defines a named factory with one argument and a body. With `struct:` and the default
@@ -157,7 +191,7 @@ defmodule FactoryMan do
   Options cascade: parent module -> child module -> individual factory.
 
   **Module-level** (set with `use FactoryMan`): `:repo`, `:extends` (the parent factory module),
-  `:hooks`, `:insert`, `:insert_via`, `:body`, `:strict`, and `:struct`.
+  `:hooks`, `:insert`, `:insert_via`, `:disable`, `:body`, `:strict`, and `:struct`.
 
   **Factory-level** (set with `deffactory`):
 
@@ -170,6 +204,7 @@ defmodule FactoryMan do
   - `:hooks` - Chained with the module's hooks (see Hooks)
   - `:repo` - Overrides the module's repo
   - `:insert` and `:insert_via` - The default and named insert targets (see Insert Targets)
+  - `:disable` - Function families to switch off (see Disabling function families)
 
   **Variant-level** (set with `defvariant`): `:for`, `:as`, `:extends`, and `:assocs` (see Variant
   Factories). Unknown options raise at every level.
@@ -210,6 +245,7 @@ defmodule FactoryMan do
     level adds a target, replaces the inherited target of the same name, or removes it with
     `name: false` (removing a target that is not inherited raises). The name `ecto` is reserved.
   - `insert: false` removes the default family only; `insert_via:` targets remain.
+    `disable: [insert_list: true]` removes the list functions of both.
   - The insert hooks (`before_insert`, `after_insert`) run for the default target, not for
     `insert_via:` targets. A target that needs more steps does them in its own function.
   - Captures and targets do not run the `:ecto` insert's already-inserted check (see Hook
@@ -487,10 +523,10 @@ defmodule FactoryMan do
 
   ```elixir
   iex> MyApp.Factory.__factory_man__(:opts)
-  [insert_via: [], insert: :ecto, repo: MyApp.Repo]
+  [disable: [], insert_via: [], insert: :ecto, repo: MyApp.Repo]
 
   iex> MyApp.Factories.Users.__factory_man__(:opts, :user)
-  [insert_via: [], insert: :ecto, repo: MyApp.Repo, struct: User]
+  [disable: [], insert_via: [], insert: :ecto, repo: MyApp.Repo, struct: User]
 
   iex> MyApp.Factories.Users.__factory_man__(:factories)
   [:user, :admin_user]
@@ -499,8 +535,8 @@ defmodule FactoryMan do
   [:admin]
   ```
 
-  - `:opts` shows the resolved options, including each hook name's list in run order and the
-    resolved `insert:` and `insert_via:`. `assocs:` is code evaluated at build time, so it does not
+  - `:opts` shows the resolved options, including each hook name's list in run order, the
+    resolved `insert:` and `insert_via:`, and the disabled families (`disable:`). `assocs:` is code evaluated at build time, so it does not
     appear.
   - `:factories` lists every factory and variant in the module (variants under their full name),
     for runtime dispatch without building function names from strings.
@@ -655,6 +691,8 @@ defmodule FactoryMan do
     `&MyApp.Factory.put!/2`. Overrides the module-level value.
   - `:insert_via` - Named insert targets, each generating an `insert_*_via_<name>` family:
     `name: capture` adds or replaces a target, and `name: false` removes an inherited one.
+  - `:disable` - Function families to switch off, as `family: true` (or `family: false` to
+    enable an inherited one again). See Disabling function families in the module documentation.
   - `:body` - What the factory body returns: `:params` (default, a params map) or `:struct`
     (a struct built directly by the body). Params functions are generated either way (derived
     from the struct), and lazy values are resolved either way. Ignored for non-struct factories.
@@ -726,18 +764,23 @@ defmodule FactoryMan do
 
       FactoryMan._validate_opts!(
         opts,
-        [:struct, :insert, :insert_via, :body, :hooks, :strict, :repo, :assocs],
+        [:struct, :insert, :insert_via, :disable, :body, :hooks, :strict, :repo, :assocs],
         subject
       )
 
       FactoryMan._validate_hooks!(opts, subject)
       FactoryMan._validate_insert!(opts, subject)
+      FactoryMan._validate_disable!(opts, subject)
 
       parent_factory_opts = Module.get_attribute(__MODULE__, :parent_factory_opts)
 
       merged_opts = FactoryMan._merge_opts(parent_factory_opts, opts, subject)
 
       source = {:factory, factory_name}
+
+      FactoryMan._check_disable_kind!(opts, merged_opts[:struct] != nil, subject)
+
+      disable = merged_opts[:disable]
 
       body = Keyword.get(merged_opts, :body, :params)
 
@@ -816,11 +859,13 @@ defmodule FactoryMan do
           source
         )
 
-        FactoryMan.Codegen.define(
-          FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
-          __ENV__,
-          source
-        )
+        if not FactoryMan._disabled?(disable, :non_struct_list) do
+          FactoryMan.Codegen.define(
+            FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
+            __ENV__,
+            source
+          )
+        end
       end
 
       if merged_opts[:struct] != nil do
@@ -897,15 +942,17 @@ defmodule FactoryMan do
           source
         )
 
-        FactoryMan.Codegen.define(
-          FactoryMan.Codegen.map_list_fns(
-            build_struct_fn,
-            :"#{build_struct_fn}_list",
-            projections
-          ),
-          __ENV__,
-          source
-        )
+        if not FactoryMan._disabled?(disable, :struct_list) do
+          FactoryMan.Codegen.define(
+            FactoryMan.Codegen.map_list_fns(
+              build_struct_fn,
+              :"#{build_struct_fn}_list",
+              projections
+            ),
+            __ENV__,
+            source
+          )
+        end
 
         struct_module = merged_opts[:struct]
 
@@ -914,7 +961,8 @@ defmodule FactoryMan do
           FactoryMan.Codegen.params_fns(
             factory_name,
             projections,
-            FactoryMan.Codegen.ecto_schema?(struct_module)
+            FactoryMan.Codegen.ecto_schema?(struct_module),
+            disable
           ),
           __ENV__,
           source
@@ -935,7 +983,8 @@ defmodule FactoryMan do
               build_struct_fn,
               insert_struct_fn,
               target,
-              projections
+              projections,
+              not FactoryMan._disabled?(disable, :insert_list)
             ),
             __ENV__,
             source
@@ -1084,6 +1133,8 @@ defmodule FactoryMan do
 
       source = {:variant, variant_name, base_factory_name}
 
+      disable = base_opts[:disable]
+
       # Variant function names combine variant + base: e.g. :admin + :user = :admin_user
       # The :as option overrides this combined name.
       full_name = as_name || :"#{variant_name}_#{base_factory_name}"
@@ -1152,11 +1203,13 @@ defmodule FactoryMan do
           source
         )
 
-        FactoryMan.Codegen.define(
-          FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
-          __ENV__,
-          source
-        )
+        if not FactoryMan._disabled?(disable, :non_struct_list) do
+          FactoryMan.Codegen.define(
+            FactoryMan.Codegen.value_list_fns(build_fn, :"#{build_fn}_list", projections),
+            __ENV__,
+            source
+          )
+        end
       end
 
       # Generate struct builder variant (if base factory has struct)
@@ -1184,15 +1237,17 @@ defmodule FactoryMan do
           source
         )
 
-        FactoryMan.Codegen.define(
-          FactoryMan.Codegen.map_list_fns(
-            build_struct_fn,
-            :"#{build_struct_fn}_list",
-            projections
-          ),
-          __ENV__,
-          source
-        )
+        if not FactoryMan._disabled?(disable, :struct_list) do
+          FactoryMan.Codegen.define(
+            FactoryMan.Codegen.map_list_fns(
+              build_struct_fn,
+              :"#{build_struct_fn}_list",
+              projections
+            ),
+            __ENV__,
+            source
+          )
+        end
 
         struct_module = base_opts[:struct]
 
@@ -1201,7 +1256,8 @@ defmodule FactoryMan do
           FactoryMan.Codegen.params_fns(
             full_name,
             projections,
-            FactoryMan.Codegen.ecto_schema?(struct_module)
+            FactoryMan.Codegen.ecto_schema?(struct_module),
+            disable
           ),
           __ENV__,
           source
@@ -1221,7 +1277,8 @@ defmodule FactoryMan do
               build_struct_fn,
               base_insert_struct_fn,
               target,
-              projections
+              projections,
+              not FactoryMan._disabled?(disable, :insert_list)
             ),
             __ENV__,
             source
@@ -1889,12 +1946,13 @@ defmodule FactoryMan do
 
     _validate_opts!(
       opts,
-      [:repo, :extends, :hooks, :body, :strict, :insert, :insert_via, :struct],
+      [:repo, :extends, :hooks, :body, :strict, :insert, :insert_via, :disable, :struct],
       subject
     )
 
     _validate_hooks!(opts, subject)
     _validate_insert!(opts, subject)
+    _validate_disable!(opts, subject)
   end
 
   @doc false
@@ -2055,6 +2113,83 @@ defmodule FactoryMan do
     :ok
   end
 
+  # Each `disable:` key and the kind of factory it applies to. The struct family and the insert
+  # functions are not keys: every other family builds on `build_*_struct`, and inserts are switched
+  # off with `insert:` and `insert_via:`.
+  @disable_keys [
+    params: :struct,
+    string_params: :struct,
+    struct_list: :struct,
+    params_list: :struct,
+    string_params_list: :struct,
+    insert_list: :struct,
+    non_struct_list: :non_struct
+  ]
+
+  @doc false
+  def _validate_disable!(opts, subject) do
+    disable = Keyword.get(opts, :disable, [])
+
+    unless is_list(disable) and Keyword.keyword?(disable) do
+      raise ArgumentError,
+            "expected :disable for #{subject} to be a keyword list of function families and " <>
+              "booleans (e.g. disable: [string_params: true]), got: #{inspect(disable)}"
+    end
+
+    for {key, value} <- disable do
+      cond do
+        key == :struct ->
+          raise ArgumentError,
+                "invalid disable: key :struct for #{subject}. Every other function family " <>
+                  "builds on build_*_struct, so it cannot be disabled."
+
+        key == :insert ->
+          raise ArgumentError,
+                "invalid disable: key :insert for #{subject}. Switch the insert functions off " <>
+                  "with insert: false (or insert_via: [name: false] for a target)."
+
+        not Keyword.has_key?(@disable_keys, key) ->
+          raise ArgumentError,
+                "unknown disable: key #{inspect(key)} for #{subject}. Allowed keys: " <>
+                  "#{inspect(Keyword.keys(@disable_keys))}"
+
+        not is_boolean(value) ->
+          raise ArgumentError,
+                "invalid disable: value for #{inspect(key)} for #{subject}: #{inspect(value)}. " <>
+                  "Expected true (disable) or false (enable again)."
+
+        true ->
+          :ok
+      end
+    end
+
+    :ok
+  end
+
+  # A `disable:` key for the other kind of factory is a mistake when written on the factory
+  # itself. Inherited ones are ignored, since a module holds both kinds of factories.
+  @doc false
+  def _check_disable_kind!(own_opts, struct?, subject) do
+    kind = if struct?, do: :struct, else: :non_struct
+
+    case for(
+           {key, _value} <- Keyword.get(own_opts, :disable, []),
+           Keyword.fetch!(@disable_keys, key) != kind,
+           do: key
+         ) do
+      [] ->
+        :ok
+
+      keys ->
+        raise ArgumentError,
+              "#{subject} sets disable: #{inspect(keys)}, which only " <>
+                if(struct?, do: "non-struct factories have.", else: "struct factories have.")
+    end
+  end
+
+  @doc false
+  def _disabled?(disable, key), do: Keyword.get(disable, key, false)
+
   defp insert_capture?(value) do
     is_function(value, 2) and Function.info(value, :type) == {:type, :external}
   end
@@ -2099,12 +2234,24 @@ defmodule FactoryMan do
           end
       end)
 
+    # Parent `disable:` holds only the disabled families. A child key set to `true` adds a
+    # family, and `false` removes it.
+    disabled =
+      child_opts
+      |> Keyword.get(:disable, [])
+      |> Enum.reduce(Keyword.get(parent_opts, :disable, []), fn {key, value}, disabled ->
+        Keyword.put(disabled, key, value)
+      end)
+
+    merged_disable = for {key, _kind} <- @disable_keys, disabled[key] == true, do: {key, true}
+
     merged_opts =
       parent_opts
       |> Keyword.merge(child_opts)
       |> Keyword.delete(:hooks)
       |> Keyword.put_new(:insert, :ecto)
       |> Keyword.put(:insert_via, merged_targets)
+      |> Keyword.put(:disable, merged_disable)
 
     if merged_hooks == [] do
       merged_opts

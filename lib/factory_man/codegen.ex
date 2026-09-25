@@ -194,80 +194,82 @@ defmodule FactoryMan.Codegen do
 
   @doc """
   `build_*_params` and `build_*_string_params` functions for struct factories, plus their
-  `_list` variants. They build a struct via `build_<name>_struct` and convert it to a clean
-  params map, stripping Ecto metadata for Ecto schemas, or `Map.from_struct/1` for plain
-  structs.
+  `_list` variants, except for the families in `disable` (see `FactoryMan._disabled?/2`). They
+  build a struct via `build_<name>_struct` and convert it to a clean params map, stripping Ecto
+  metadata for Ecto schemas, or `Map.from_struct/1` for plain structs. The string-keyed family
+  converts the struct itself, so it does not depend on the atom-keyed family.
   """
-  def params_fns(full_name, projections, ecto_schema?) do
+  def params_fns(full_name, projections, ecto_schema?, disable) do
     build_struct_fn = :"build_#{full_name}_struct"
     params_fn = :"build_#{full_name}_params"
     string_params_fn = :"build_#{full_name}_string_params"
 
-    {strip_mod, strip_fun} =
-      if ecto_schema?, do: {FactoryMan.Params, :strip}, else: {Map, :from_struct}
+    strip = if ecto_schema?, do: {FactoryMan.Params, :strip}, else: {Map, :from_struct}
 
-    params_doc =
-      "Builds a struct via `#{build_struct_fn}/1` and converts it to a clean params map."
+    params =
+      if not FactoryMan._disabled?(disable, :params) do
+        converted_fns(
+          params_fn,
+          build_struct_fn,
+          [strip],
+          "Builds a struct via `#{build_struct_fn}/1` and converts it to a clean params map.",
+          projections,
+          not FactoryMan._disabled?(disable, :params_list)
+        )
+      end
 
-    string_params_doc = "Like `#{params_fn}/1`, but with string keys."
+    string_params =
+      if not FactoryMan._disabled?(disable, :string_params) do
+        converted_fns(
+          string_params_fn,
+          build_struct_fn,
+          [strip, {FactoryMan.Params, :stringify_keys}],
+          "Builds a struct via `#{build_struct_fn}/1` and converts it to a clean params map " <>
+            "with string keys.",
+          projections,
+          not FactoryMan._disabled?(disable, :string_params_list)
+        )
+      end
+
+    block([params, string_params])
+  end
+
+  # A family that builds a struct with `build_struct_fn`, then pipes it through each
+  # `{module, function}` in `steps`: `fun/0,1,2`, plus `fun_list/1,2,3` when `list?`
+  defp converted_fns(fun, build_struct_fn, steps, doc, projections, list?) do
+    convert = fn struct_ast ->
+      Enum.reduce(steps, struct_ast, fn {module, name}, acc ->
+        quote do: unquote(module).unquote(name)(unquote(acc))
+      end)
+    end
 
     zero_arity =
       if projections.has_default do
         quote do
-          @doc unquote(params_doc)
-          def unquote(params_fn)() do
-            unquote(build_struct_fn)()
-            |> unquote(strip_mod).unquote(strip_fun)()
-          end
-
-          @doc unquote(string_params_doc)
-          def unquote(string_params_fn)() do
-            unquote(params_fn)()
-            |> FactoryMan.Params.stringify_keys()
-          end
+          @doc unquote(doc)
+          def unquote(fun)(), do: unquote(convert.(quote(do: unquote(build_struct_fn)())))
         end
       end
 
     one_arity =
       quote do
-        @doc unquote(params_doc)
-        def unquote(params_fn)(unquote(projections.plain_var)) do
-          unquote(projections.user_var)
-          |> unquote(build_struct_fn)()
-          |> unquote(strip_mod).unquote(strip_fun)()
-        end
-
-        @doc unquote(string_params_doc)
-        def unquote(string_params_fn)(unquote(projections.plain_var)) do
-          unquote(params_fn)(unquote(projections.user_var))
-          |> FactoryMan.Params.stringify_keys()
+        @doc unquote(doc)
+        def unquote(fun)(unquote(projections.plain_var)) do
+          unquote(convert.(quote(do: unquote(build_struct_fn)(unquote(projections.user_var)))))
         end
       end
 
     with_opts =
       quote do
-        @doc unquote(params_doc)
-        def unquote(params_fn)(params, opts) when is_list(opts) do
-          params
-          |> unquote(build_struct_fn)(opts)
-          |> unquote(strip_mod).unquote(strip_fun)()
-        end
-
-        @doc unquote(string_params_doc)
-        def unquote(string_params_fn)(params, opts) when is_list(opts) do
-          params
-          |> unquote(params_fn)(opts)
-          |> FactoryMan.Params.stringify_keys()
+        @doc unquote(doc)
+        def unquote(fun)(params, opts) when is_list(opts) do
+          unquote(convert.(quote(do: unquote(build_struct_fn)(params, opts))))
         end
       end
 
-    block([
-      zero_arity,
-      one_arity,
-      with_opts,
-      map_list_fns(params_fn, :"#{params_fn}_list", projections),
-      map_list_fns(string_params_fn, :"#{string_params_fn}_list", projections)
-    ])
+    list = if list?, do: map_list_fns(fun, :"#{fun}_list", projections)
+
+    block([zero_arity, one_arity, with_opts, list])
   end
 
   @doc """
@@ -288,11 +290,12 @@ defmodule FactoryMan.Codegen do
   end
 
   @doc """
-  The `insert_*` family of a factory or variant: `insert_*/0,1,2` and `insert_*_list/1,2,3`.
+  The `insert_*` family of a factory or variant: `insert_*/0,1,2`, and `insert_*_list/1,2,3` when
+  `list?`.
   `insert_*/2` builds with `build_struct_fn`, then inserts with `insert_struct_fn`. `target` is
   what `insert_struct_fn` inserts with (`{:ecto, repo}` or a capture), for the docs.
   """
-  def insert_fns(insert_fn, build_struct_fn, insert_struct_fn, target, projections) do
+  def insert_fns(insert_fn, build_struct_fn, insert_struct_fn, target, projections, list?) do
     implementation =
       quote do
         @doc unquote(insert_doc(target))
@@ -308,7 +311,7 @@ defmodule FactoryMan.Codegen do
     block([
       insert_convenience_fns(insert_fn, target, projections),
       implementation,
-      insert_list_fns(insert_fn, :"#{insert_fn}_list", projections)
+      if(list?, do: insert_list_fns(insert_fn, :"#{insert_fn}_list", projections))
     ])
   end
 

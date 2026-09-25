@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - Unreleased
+
+### Added
+
+- `disable:` switches off generated function families that a test suite does not use:
+  `use FactoryMan, disable: [string_params: true, insert_list: true]`. The keys are `:params`,
+  `:string_params`, `:struct_list`, `:params_list`, `:string_params_list`, `:insert_list` (which
+  includes the `insert_via:` target lists), and `:non_struct_list`. It cascades per key, a lower
+  level enables an inherited family again with `false`, and variants follow their base factory. A
+  disabled function's name is free for a hand-written function.
+- `__factory_man__(:opts)` and `__factory_man__(:opts, name)` include the resolved `disable:`,
+  which lists the disabled families (`[]` by default).
+
+### Changed
+
+- `build_*_string_params` converts the built struct itself instead of calling
+  `build_*_params`, so either family can be disabled alone. The result is unchanged.
+
 ## [0.17.0] - 2026-09-25
 
 ### Added
