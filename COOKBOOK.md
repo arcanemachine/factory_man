@@ -1062,8 +1062,8 @@ follow the ordinary table-backed Ecto path.
 
 ### Build embedded schemas
 
-Embedded schemas use the normal struct and params builders, but FactoryMan skips insert functions
-automatically:
+Embedded schemas use the normal struct and params builders. They cannot be inserted with Ecto,
+so FactoryMan generates no Ecto insert functions for them:
 
 ```elixir
 defmodule MyApp.Factory.Settings do
@@ -1092,7 +1092,9 @@ assert settings.theme == "light"
 assert attrs.notifications
 ```
 
-There is no `insert_settings` because an embedded schema has no table of its own.
+There is no `insert_settings` because an embedded schema has no table of its own. To store one
+somewhere else, give it an insert function (see
+[Insert into other stores](#insert-into-other-stores)).
 
 ### Return a struct directly with `body: :struct`
 
@@ -1126,6 +1128,135 @@ still run. In the wrapper above, an `after_build_struct` hook
 runs once inside `build_user_struct/1` and again for the wrapping factory.
 
 Use direct struct bodies sparingly. A normal params body is easier to extend, compose, and inspect.
+
+## Insert into other stores
+
+By default, `insert_*` inserts with the repo. An insert target sends a built struct somewhere
+else: a search index, a cache, an in-memory store, or an external API stub.
+
+### Insert a plain struct
+
+A plain struct has no Ecto insert. Give it one with `insert:`, a remote capture of arity 2:
+
+```elixir
+defmodule MyApp.Factory.Events do
+  use FactoryMan, extends: MyApp.Factory
+
+  alias MyApp.Events.Event
+
+  deffactory event(params \\ %{}), struct: Event, insert: &__MODULE__.publish!/2 do
+    base_params = %{name: FactoryMan.sequence("event"), payload: %{}}
+
+    Map.merge(base_params, params)
+  end
+
+  def publish!(event, _opts) do
+    :ok = MyApp.EventBus.publish(event)
+
+    event
+  end
+end
+```
+
+The whole insert family is generated, and the insert hooks run around `publish!/2`:
+
+```elixir
+MyApp.Factory.Events.insert_event(%{name: "signed_up"})
+MyApp.Factory.Events.insert_event_list(3)
+MyApp.Factory.Events.insert_event_struct(event)
+```
+
+An insert function receives the built struct and the caller's options (without `:variants`),
+and returns the inserted struct. A store that takes no options ignores them, as above.
+
+### Add a named target
+
+`insert_via:` keeps the Ecto insert and adds a second way to insert. Set it in the base factory
+to give every factory the target:
+
+```elixir
+defmodule MyApp.Factory do
+  use FactoryMan,
+    repo: MyApp.Repo,
+    insert_via: [search: &__MODULE__.index!/2]
+
+  def index!(struct, opts) do
+    MyApp.Search.index!(struct, refresh: Keyword.get(opts, :refresh, true))
+
+    struct
+  end
+end
+```
+
+Each struct factory now has an `insert_*_via_search` family:
+
+```elixir
+user = insert_user_via_search(%{username: "alice"})
+users = insert_user_via_search_list(3, %{}, refresh: false)
+post = insert_post_via_search(%{}, variants: [:published])
+```
+
+`insert_via:` merges by name: a factory adds its own targets, replaces an inherited one with the
+same name, or removes it with `false`:
+
+```elixir
+deffactory audit_log(params \\ %{}), struct: AuditLog, insert_via: [search: false] do
+  Map.merge(%{action: "login"}, params)
+end
+```
+
+Targets run no insert hooks, and they do not check whether the struct has already been inserted.
+Anything a target needs goes inside its function.
+
+### Insert a row, then index it
+
+A row that a query needs and a search document that a search needs are two steps. Pipe the
+inserted row into the target's struct form:
+
+```elixir
+user =
+  %{username: "alice"}
+  |> insert_user()
+  |> insert_user_struct_via_search()
+```
+
+`insert_user/1` runs the insert hooks and the Ecto insert. `insert_user_struct_via_search/1`
+indexes the record it is given, with its database id.
+
+### Do both steps in one target
+
+When most tests need both, make one target do both:
+
+```elixir
+use FactoryMan,
+  repo: MyApp.Repo,
+  insert_via: [indexed: &__MODULE__.insert_and_index!/2]
+
+def insert_and_index!(struct, opts) do
+  struct
+  |> MyApp.Repo.insert!(opts)
+  |> tap(&MyApp.Search.index!(&1, refresh: true))
+end
+```
+
+```elixir
+user = insert_user_via_indexed(%{username: "alice"})
+```
+
+The target calls `MyApp.Repo.insert!/2` directly, so the factory's insert hooks do not run.
+To get the same result shape as `insert_user/1`, call your hook functions from the target.
+
+### Check where a factory inserts
+
+The resolved targets appear in the factory's options:
+
+```elixir
+iex> MyApp.Factory.Accounts.__factory_man__(:opts, :user)[:insert]
+:ecto
+
+iex> MyApp.Factory.Accounts.__factory_man__(:opts, :user)[:insert_via]
+[search: &MyApp.Factory.index!/2]
+```
 
 ## Build presets that keep their promises
 

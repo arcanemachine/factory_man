@@ -163,7 +163,8 @@ You write one factory, and FactoryMan generates the rest:
   calls `struct!/2`)
 - **`build_<name>_params`** / **`build_<name>_string_params`** - builds the struct, then converts
   it to a clean params map (Ecto metadata stripped) for changesets or controller tests
-- **`insert_<name>`** - builds the struct and inserts it with your configured repo
+- **`insert_<name>`** - builds the struct and inserts it with your configured repo, or with the
+  insert function you choose (`insert:`)
 - **`insert_<name>_struct`** - inserts an already-built struct through the same insert pipeline
 - **List builders** - `build_<name>_struct_list`, `build_<name>_params_list`, and
   `build_<name>_string_params_list` build each item independently. `insert_<name>_list` builds and
@@ -203,6 +204,7 @@ The full reference lives in the
 - **Lazy evaluation** - 0- and 1-arity functions as attribute values, resolved at build time
 - **Factory inheritance** (`extends:`) - share repo, hooks, and helper functions
 - **Direct struct factories** (`body: :struct`) - full control over struct construction
+- **Insert targets** (`insert:`, `insert_via:`) - insert into other stores, such as a search index
 - **Embedded schemas** - build-only factories, detected automatically
 - **[Cookbook](COOKBOOK.md)** - a practical progression from a first factory through realistic
   defaults, variants, associations, suite organization, hooks, strict params, and advanced presets

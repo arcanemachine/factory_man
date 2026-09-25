@@ -17,8 +17,18 @@
 | `build_user_string_params_list/1,2,3` | `[%{"" => ...}, ...]`          |
 | `insert_user_list/1,2,3`              | `[%User{}, ...]`, inserted     |
 
-Insert functions need a repo, a table-backed Ecto schema, and `insert?` not `false`. Embedded
-schemas get no insert functions.
+With the default `insert: :ecto`, insert functions need a repo and a table-backed Ecto schema.
+An `insert:` capture inserts any struct; `insert: false` removes them.
+
+### Insert targets (`insert_via: [search: &M.index!/2]`)
+
+| Function                                   | Returns                          |
+| ------------------------------------------ | -------------------------------- |
+| `insert_user_via_search/0,1,2`             | `%User{}` from `M.index!/2`      |
+| `insert_user_via_search_list/1,2,3`        | `[%User{}, ...]`                 |
+| `insert_user_struct_via_search/1,2`        | Inserts an already-built struct  |
+
+Targets run no insert hooks and do not check for an already-inserted struct.
 
 ### Non-struct factory (`deffactory payload(params \\ %{})`)
 
@@ -58,6 +68,8 @@ Every function of the base factory has a variant counterpart.
 | `:hooks`   | Hooks for every factory in the module      |
 | `:strict`  | Default `:strict` for the module           |
 | `:body`    | Default `:body` for the module             |
+| `:insert`  | Default `:insert` for the module           |
+| `:insert_via` | Insert targets for the module           |
 
 ### `deffactory`
 
@@ -69,7 +81,8 @@ Every function of the base factory has a variant counterpart.
 | `:body`    | `:params` (default) or `:struct`                     |
 | `:hooks`   | Chained with the module's hooks                      |
 | `:repo`    | Overrides the module's repo                          |
-| `:insert?` | `false` skips insert functions                       |
+| `:insert`  | `:ecto` (default), `false`, or `&M.fun/2`            |
+| `:insert_via` | `name: &M.fun/2` adds or replaces, `name: false` removes |
 
 ### `defvariant`
 
@@ -85,8 +98,8 @@ Every function of the base factory has a variant counterpart.
 | Function         | Options                                           |
 | ---------------- | ------------------------------------------------- |
 | `build_*`        | `variants: [...]` only                            |
-| `insert_*`       | `variants: [...]`; every other option goes to `Repo.insert!/2` |
-| `insert_*_struct`| Repo options only                                 |
+| `insert_*`       | `variants: [...]`; every other option goes to the insert target |
+| `insert_*_struct`| Insert target options only                        |
 
 ## Variants
 {: .col-2}
@@ -144,10 +157,10 @@ every variant after it in the list.
 | `:after_build_params`  | params   | After the body and the strict check |
 | `:before_build_struct` | params   | Before `struct!/2`               |
 | `:after_build_struct`  | struct   | After the struct is built        |
-| `:before_insert`       | struct   | Before `Repo.insert!/2`          |
+| `:before_insert`       | struct   | Before the default target's insert |
 | `:after_insert`        | struct   | After the insert                 |
 
-`body: :struct` skips the three params-stage hooks.
+`body: :struct` skips the three params-stage hooks. `insert_via:` targets skip the insert hooks.
 
 ### Forms and placements
 

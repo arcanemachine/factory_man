@@ -45,10 +45,39 @@ For `deffactory user(params \\ %{}), struct: User`:
 
 - A struct factory has no `build_user/1`. A factory without `struct:` generates only `build_*` and
   `build_*_list`.
-- Embedded schemas, `insert?: false`, and modules without a `repo:` get no insert functions.
+- With the default `insert: :ecto`, embedded schemas, plain structs, and modules without a
+  `repo:` get no insert functions. `insert: false` removes them.
 - A builder's last argument may be options; the only one is `variants:`. `insert_*` takes one
-  option list: `:variants` is FactoryMan's, and every other option goes to `Repo.insert!/2`.
-- `insert_*_struct` raises on a struct that has already been inserted.
+  option list: `:variants` is FactoryMan's, and every other option goes to the insert target
+  (`Repo.insert!/2` by default).
+- With `:ecto`, `insert_*_struct` raises on a struct that has already been inserted.
+
+## Insert targets
+
+```elixir
+use FactoryMan, repo: MyApp.Repo, insert_via: [search: &MyApp.Factory.index!/2]
+
+deffactory event(params \\ %{}), struct: Event, insert: &MyApp.Factory.publish!/2 do
+  Map.merge(%{name: "event"}, params)
+end
+
+insert_event()                     # MyApp.Factory.publish!/2, with the insert hooks
+insert_event_via_search()          # MyApp.Factory.index!/2, no hooks
+insert_event_struct_via_search(event)
+```
+
+- `insert:` is the default target, used by `insert_*`, `insert_*_list`, and `insert_*_struct`:
+  `:ecto` (default), `false`, or a remote capture of arity 2. A capture works for any struct
+  factory, including plain structs and embedded schemas.
+- `insert_via: [name: capture]` adds an `insert_*_via_<name>` family (`/0,1,2`, `_list/1,2,3`,
+  and `insert_*_struct_via_<name>/1,2`) to every struct factory below it. `name: false` removes
+  an inherited target. `ecto` is not a valid name.
+- An insert function takes `(struct, opts)` and returns the inserted struct. Write
+  `def put!(struct, _opts)` for a store without options. Anonymous functions and local captures
+  raise.
+- Insert hooks run for the default target only. A target does everything it needs in its own
+  function, and does not check whether the struct has already been inserted.
+- Set `insert:` and `insert_via:` on struct factories only; on a non-struct factory they raise.
 
 ## Variants
 
@@ -141,3 +170,5 @@ build_user_struct(%{}, variants: [:admin, :confirmed])
 - A `base_params` default for a key declared in `assocs:`.
 - Factories defined outside a module that uses `FactoryMan`.
 - `Repo.insert!/2` on a built struct instead of `insert_*_struct`, which skips the insert hooks.
+- An `insert:` or `insert_via:` function of arity 1, or one that returns something other than the
+  inserted struct.
