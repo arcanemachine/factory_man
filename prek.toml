@@ -1,0 +1,22 @@
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v6.0.0"
+hooks = [
+  { id = "end-of-file-fixer" },
+  { id = "trailing-whitespace" },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "mix-precommit",
+    name = "Run 'mix precommit'",
+    language = "system",
+    entry = "mix precommit",
+    files = "\\.(?:exs|ex|md)$",
+    pass_filenames = false,
+    require_serial = true,
+    verbose = true
+  },
+]

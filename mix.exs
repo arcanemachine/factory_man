@@ -48,7 +48,12 @@ defmodule FactoryMan.MixProject do
   defp aliases do
     [
       "ecto.setup": ["ecto.create", "ecto.migrate"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"]
+      "ecto.reset": ["ecto.drop", "ecto.setup"],
+      precommit: [
+        "format --check-formatted",
+        "compile --warnings-as-errors --force",
+        "docs --warnings-as-errors"
+      ]
     ]
   end
 
