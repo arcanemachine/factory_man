@@ -28,6 +28,11 @@ defmodule FactoryMan.MixProject do
     ]
   end
 
+  # Run the precommit checks in the test env, so they also compile the factories in test/support
+  def cli do
+    [preferred_envs: [precommit: :test]]
+  end
+
   def application do
     [
       extra_applications: [:logger]
@@ -60,7 +65,7 @@ defmodule FactoryMan.MixProject do
   defp deps do
     [
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
+      {:ex_doc, ">= 0.0.0", only: [:dev, :test], runtime: false},
 
       # Required when using `insert_*` functions
       {:ecto_sql, "~> 3.0", optional: true},

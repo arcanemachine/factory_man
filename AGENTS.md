@@ -117,7 +117,8 @@ The user docs state the rules. These are the reasons behind them, for developmen
 - **Use `MIX_ENV=test` for non-test commands** (e.g. `iex -S mix`, `mix compile`). Factories are
   in `test/support/` and only compiled under the test env. `mix test` sets this automatically.
 - `mix precommit` runs the format check, compile with warnings as errors, and docs with warnings
-  as errors. `prek` runs it on commit (`prek install` once per clone).
+  as errors, in the test env (so the factories in `test/support/` are compiled too). `prek` runs
+  it on commit (`prek install` once per clone).
 - Public functions that exist only for macro-generated code or other internal plumbing must use
   `@doc false`. Do not publish API documentation whose purpose is merely to explain that a
   function is internal; keep necessary implementation context in source comments instead.
